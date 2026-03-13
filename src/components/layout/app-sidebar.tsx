@@ -3,7 +3,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LifeBuoy, Package2, List, MessageSquare, ExternalLink, Settings, SlidersHorizontal, PanelLeft, Video, ClipboardCheck, Wrench, FileClock, BookCopy, PanelRight, Tags, LayoutGrid, ShoppingCart, Archive, ShieldCheck, Download, Bug, Lightbulb } from 'lucide-react';
+import { Package2, List, MessageSquare, ExternalLink, Settings, SlidersHorizontal, PanelLeft, Video, ClipboardCheck, Wrench, FileClock, BookCopy, PanelRight, Tags, LayoutGrid, ShoppingCart, Archive, Download, Bug, Lightbulb } from 'lucide-react';
 import { FeedbackDialog } from '@/components/feedback-dialog';
 import { useMemo } from 'react';
 
@@ -46,8 +46,6 @@ export function AppSidebar() {
     { href: '/categories', icon: ShoppingCart, label: 'Categories', color: '#7554C2' },
     { href: '/standard-lists', icon: List, label: 'Standard Lists', color: '#6E328C' },
     { href: '/all-orders', icon: Archive, label: 'Review Submitted Orders', color: '#9C77EA' },
-    { href: '/support', icon: LifeBuoy, label: 'Submit Support Ticket', color: '#D60046' },
-    { href: '/check-support-status', icon: ShieldCheck, label: 'Check Support Status', color: '#F8005E' },
   ];
 
   const csHelpfulLinks = [
@@ -70,7 +68,6 @@ export function AppSidebar() {
           <SidebarMenu>
             {primaryNavItems.map((item) => {
                 const isActive = pathname.startsWith(item.href);
-                const isSupportButton = item.href.includes('support');
                 return (
                 <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton
@@ -81,9 +78,7 @@ export function AppSidebar() {
                     className={cn(
                         'bg-accent/10 dark:bg-accent/10 font-normal',
                         'text-foreground dark:text-foreground',
-                        isSupportButton
-                          ? 'hover:bg-destructive/20 dark:hover:bg-destructive/30'
-                          : 'hover:bg-accent/20 dark:hover:bg-accent/20',
+                        'hover:bg-accent/20 dark:hover:bg-accent/20',
                         isActive && 'bg-accent/20 dark:bg-accent/20 border border-primary/50'
                     )}
                     isActive={isActive}

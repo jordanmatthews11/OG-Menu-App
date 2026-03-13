@@ -1,6 +1,6 @@
 'use client';
 
-import { useAuth, handleGoogleSignIn } from '@/firebase';
+import { useFirebase, useUser, handleGoogleSignIn } from '@/firebase';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
@@ -18,7 +18,8 @@ const GoogleIcon = () => (
 
 
 export default function LoginForm() {
-  const { auth, user, isUserLoading } = useAuth();
+  const { auth } = useFirebase();
+  const { user, isUserLoading } = useUser();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
