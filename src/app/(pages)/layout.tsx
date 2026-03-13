@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 
 const TABS = [
   { href: '/categories', label: 'Categories' },
-  { href: '/standard-lists', label: 'Retailer/Channel Mix List' },
+  { href: '/standard-lists', label: 'Retailer/Channel Mix Lists' },
   { href: '/code-directory', label: 'Master Code Directory' },
 ];
 
@@ -30,7 +30,7 @@ export default function PagesLayout({
               <Image
                 src="/images/storesight-white.png"
                 alt="Storesight"
-                width={32}
+                width={144}
                 height={32}
                 className="h-8 w-auto"
                 priority

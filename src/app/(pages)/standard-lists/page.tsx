@@ -35,6 +35,7 @@ import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection } from "firebase/firestore";
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
+import { RetailerTabs } from "@/components/retailer/retailer-tabs";
 
 
 type GroupedStoreLists = Record<string, StoreList[]>;
@@ -247,18 +248,12 @@ export default function StandardListsPage() {
     <div className="container mx-auto max-w-full">
       <div className="flex justify-between items-start mb-6">
           <div>
-            <h1 className="text-xl font-bold tracking-tight">Retailer/Channel Mix List</h1>
+            <h1 className="text-xl font-bold tracking-tight">Retailer/Channel Mix Lists</h1>
             <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
               Search for the best list for your customer. Select a list below to generate a copy- and print-friendly view, or download a PDF version.
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button asChild variant="outline" size="sm" className="text-[10px]">
-              <Link href="/list-genie">
-                <Wand2 className="mr-2 h-4 w-4" />
-                List Genie
-              </Link>
-            </Button>
             <Button asChild variant="outline" size="sm" className="text-[10px]">
               <Link href="https://studio--store-list-builder2.us-central1.hosted.app/" target="_blank">
                 <Download className="mr-2 h-4 w-4" />
@@ -267,6 +262,8 @@ export default function StandardListsPage() {
             </Button>
           </div>
       </div>
+
+      <RetailerTabs />
 
       <Card className="mb-6">
         <CardContent className="p-4 flex flex-wrap items-center justify-between gap-4">

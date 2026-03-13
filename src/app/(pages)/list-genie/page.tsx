@@ -18,6 +18,7 @@ import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { RetailerTabs } from "@/components/retailer/retailer-tabs";
 
 
 interface RankedRetailer extends Booster {
@@ -226,10 +227,12 @@ export default function ListGeniePage() {
                 <Button asChild variant="outline" size="sm">
                     <Link href="/standard-lists">
                         <ArrowLeft className="mr-2 h-4 w-4" />
-                        Back to Retailer/Channel Mix List
+                        Back to Retailer/Channel Mix Lists
                     </Link>
                 </Button>
             </div>
+
+            <RetailerTabs />
             
             <Card>
                 <CardHeader>
