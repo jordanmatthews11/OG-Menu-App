@@ -112,8 +112,8 @@ export default function ListGeniePage() {
             const existingIds = new Set(preferredList.map(pr => pr.id));
             const toAdd: RankedRetailer[] = [];
             let nextRank = preferredList.length + 1;
-            for (const bannerName of holding.banners) {
-                const matchingBooster = boosters.find(b => b.name === bannerName && b.country === selectedCountry);
+            for (const bannerId of holding.bannerIds) {
+                const matchingBooster = boosters.find(b => b.id === bannerId && b.country === selectedCountry);
                 if (matchingBooster && !existingIds.has(matchingBooster.id)) {
                     toAdd.push({ ...matchingBooster, rank: nextRank++ });
                     existingIds.add(matchingBooster.id);

@@ -83,7 +83,7 @@ const boosterSchema = z.object({
 const holdingCompanySchema = z.object({
     name: z.string().min(1, "Name is required"),
     country: z.string().min(1, "Country is required"),
-    banners: z.string().min(1, "At least one banner is required"),
+    bannerIds: z.array(z.string()).min(1, "At least one banner is required"),
 });
 
 const customCategoryCodeSchema = z.object({
@@ -135,7 +135,7 @@ const defaultValues: Record<DataType, any> = {
     categories: { name: '', department: '', subDepartment: '', number: '', country: '', premium: false, description: '', notes: '' },
     storeLists: { name: '', retailer: '', country: '', weeklyQuota: 0, monthlyQuota: 0 },
     boosters: { name: '', country: '' },
-    holdingCompanies: { name: '', country: '', banners: '' },
+    holdingCompanies: { name: '', country: '', bannerIds: [] as string[] },
     customCategoryCodes: { timestamp: new Date().toISOString(), submittedBy: '', customer: '', category: '', categoryCode: '', codeType: 'Custom', jobIds: '', notes: '' },
     authorizedUsers: { name: '', email: '' },
     feedback: { timestamp: new Date().toISOString(), name: '', email: '', feedbackType: 'general', description: '', details: '', page: '', feedbackStatus: 'New', adminNotes: '' },
@@ -782,6 +782,10 @@ function EditDialog({
     onSuccess: (isNew: boolean) => void;
 }) {
     const firestore = useFirestore();
+    const { data: allBoosters } = useCollection<Booster>(useMemoFirebase(
+        () => firestore ? collection(firestore, 'boosters') : null,
+        [firestore]
+    ));
     const { toast } = useToast();
     const schema = schemas[dataType];
     const form = useForm<z.infer<typeof schema>>({
@@ -789,18 +793,14 @@ function EditDialog({
     });
 
     const isNew = !entity?.id;
+    const countryForHoldingCompany = form.watch('country') as string | undefined;
 
     useEffect(() => {
         if (isOpen) {
             if (isNew) {
                 form.reset(defaultValues[dataType]);
             } else if (entity) {
-                if (dataType === 'holdingCompanies') {
-                    const hc = entity as HoldingCompany;
-                    form.reset({ ...hc, banners: Array.isArray(hc.banners) ? hc.banners.join(', ') : (hc.banners ?? '') });
-                } else {
-                    form.reset(entity);
-                }
+                form.reset(entity);
             }
         }
     }, [isOpen, entity, isNew, dataType, form]);
@@ -819,7 +819,7 @@ function EditDialog({
         if (typeName === 'ZodEnum') return 'select';
         if (typeName === 'ZodBoolean') return 'checkbox';
         if (typeName === 'ZodNumber') return 'number';
-        if (['description', 'details', 'notes', 'adminNotes', 'banners'].includes(fieldName)) return 'textarea';
+        if (['description', 'details', 'notes', 'adminNotes'].includes(fieldName)) return 'textarea';
         return 'text';
     };
 
@@ -846,10 +846,6 @@ function EditDialog({
                 Object.entries(values).filter(([_, v]) => v !== undefined)
             );
             let dataToSave: any = { ...cleanedValues };
-
-            if (dataType === 'holdingCompanies' && typeof dataToSave.banners === 'string') {
-                dataToSave.banners = dataToSave.banners.split(',').map((s: string) => s.trim()).filter(Boolean);
-            }
 
             if (isNew) {
                 const newDocRef = doc(collection(firestore, dataType));
@@ -899,8 +895,96 @@ function EditDialog({
                             <div className="space-y-4">
                                 {Object.keys(schema.shape).map(fieldName => {
                                     if (fieldName === 'id' || fieldName === 'timestamp') return null;
+
+                                    // Special UI for holdingCompanies.bannerIds -> booster multi-select
+                                    if (dataType === 'holdingCompanies' && fieldName === 'bannerIds') {
+                                        const boostersForCountry = (allBoosters || []).filter(
+                                            b => !countryForHoldingCompany || b.country === countryForHoldingCompany
+                                        );
+
+                                        return (
+                                            <FormField
+                                                key={fieldName}
+                                                control={form.control}
+                                                name={fieldName}
+                                                render={({ field }) => {
+                                                    const selectedIds: string[] = field.value || [];
+                                                    return (
+                                                        <FormItem>
+                                                            <FormLabel className="text-[11px]">
+                                                                Banners (Boosters)
+                                                            </FormLabel>
+                                                            <FormControl>
+                                                                <div className="space-y-1">
+                                                                    <div className="flex flex-wrap gap-1 min-h-[20px]">
+                                                                        {selectedIds.length === 0 ? (
+                                                                            <span className="text-[10px] text-muted-foreground">
+                                                                                No boosters selected.
+                                                                            </span>
+                                                                        ) : (
+                                                                            selectedIds.map(id => {
+                                                                                const booster = boostersForCountry.find(b => b.id === id) || (allBoosters || []).find(b => b.id === id);
+                                                                                return (
+                                                                                    <Badge key={id} variant="secondary" className="text-[10px]">
+                                                                                        {booster?.name ?? id}
+                                                                                    </Badge>
+                                                                                );
+                                                                            })
+                                                                        )}
+                                                                    </div>
+                                                                    <Popover>
+                                                                        <PopoverTrigger asChild>
+                                                                            <Button variant="outline" size="sm" className="h-7 text-[11px] justify-between">
+                                                                                <span>Select boosters</span>
+                                                                                <ChevronsUpDown className="h-3 w-3 ml-1 opacity-60" />
+                                                                            </Button>
+                                                                        </PopoverTrigger>
+                                                                        <PopoverContent className="p-0 w-72">
+                                                                            <Command>
+                                                                                <CommandInput placeholder="Search boosters..." className="text-[11px]" />
+                                                                                <CommandList>
+                                                                                    <CommandEmpty>No boosters found.</CommandEmpty>
+                                                                                    <CommandGroup>
+                                                                                        {boostersForCountry.map(b => {
+                                                                                            const checked = selectedIds.includes(b.id);
+                                                                                            const toggle = () => {
+                                                                                                const next = checked
+                                                                                                    ? selectedIds.filter(id => id !== b.id)
+                                                                                                    : [...selectedIds, b.id];
+                                                                                                field.onChange(next);
+                                                                                            };
+                                                                                            return (
+                                                                                                <CommandItem
+                                                                                                    key={b.id}
+                                                                                                    onSelect={toggle}
+                                                                                                    className="flex items-center justify-between text-[11px]"
+                                                                                                >
+                                                                                                    <span>{b.name}</span>
+                                                                                                    <Checkbox
+                                                                                                        checked={checked}
+                                                                                                        onCheckedChange={toggle}
+                                                                                                        className="h-3 w-3"
+                                                                                                    />
+                                                                                                </CommandItem>
+                                                                                            );
+                                                                                        })}
+                                                                                    </CommandGroup>
+                                                                                </CommandList>
+                                                                            </Command>
+                                                                        </PopoverContent>
+                                                                    </Popover>
+                                                                </div>
+                                                            </FormControl>
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    );
+                                                }}
+                                            />
+                                        );
+                                    }
+
                                     const fieldType = getFieldType(fieldName);
-                                    
+
                                     return (
                                         <FormField
                                             key={fieldName}
@@ -1216,6 +1300,14 @@ function DataTable<T extends Entity>({ columns, data, isLoading, tableName, data
                                                 return <Badge variant={val ? 'default' : 'secondary'}>{val ? 'Yes' : 'No'}</Badge>;
                                             }
                                             if (Array.isArray(val)) {
+                                                // For holdingCompanies.bannerIds, resolve booster IDs to names
+                                                if (dataType === 'holdingCompanies' && column === 'bannerIds') {
+                                                    const boostersForDisplay = (allBoosters || []).filter(b => val.includes(b.id));
+                                                    if (boostersForDisplay.length === 0) {
+                                                        return val.join(', ');
+                                                    }
+                                                    return boostersForDisplay.map(b => b.name).join(', ');
+                                                }
                                                 return val.join(', ');
                                             }
                                             return val;
@@ -1334,7 +1426,7 @@ function LegacyCodesTable({ data, isLoading, onDataChange }: { data: LegacyCode[
 }
 
 function HoldingCompaniesTable({ data, isLoading, onDataChange }: { data: HoldingCompany[] | null; isLoading: boolean; onDataChange: () => void; }) {
-    const columns: (keyof HoldingCompany)[] = ['name', 'country', 'banners'];
+    const columns: (keyof HoldingCompany)[] = ['name', 'country', 'bannerIds'];
     return <DataTable columns={columns} data={data} isLoading={isLoading} tableName="Holding Companies" dataType="holdingCompanies" onDataChange={onDataChange} />;
 }
 

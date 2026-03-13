@@ -42,7 +42,7 @@ export type Booster = {
 export type HoldingCompany = {
     id: string;
     name: string;
-    banners: string[];
+    bannerIds: string[];
     country: Country;
 };
 
