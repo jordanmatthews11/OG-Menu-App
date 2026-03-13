@@ -876,12 +876,21 @@ function EditDialog({
                     setIsOpen(false);
                 })
                 .catch(async (serverError) => {
-                    const permissionError = new FirestorePermissionError({
-                        path: docRef.path,
-                        operation: isNew ? 'create' : 'update',
-                        requestResourceData: dataToSave,
-                    } satisfies SecurityRuleContext);
-                    errorEmitter.emit('permission-error', permissionError);
+                    console.error('[Firestore save error]', serverError?.code, serverError?.message, serverError);
+                    if (serverError?.code === 'permission-denied') {
+                        const permissionError = new FirestorePermissionError({
+                            path: docRef.path,
+                            operation: isNew ? 'create' : 'update',
+                            requestResourceData: dataToSave,
+                        } satisfies SecurityRuleContext);
+                        errorEmitter.emit('permission-error', permissionError);
+                    } else {
+                        toast({
+                            variant: 'destructive',
+                            title: isNew ? 'Create Failed' : 'Update Failed',
+                            description: serverError?.message || 'An unexpected error occurred.',
+                        });
+                    }
                 });
 
         } catch (error: any) {
@@ -1065,11 +1074,20 @@ function DataTable<T extends Entity>({ columns, data, isLoading, tableName, data
                 onDataChange();
             })
             .catch(async (serverError) => {
-                const permissionError = new FirestorePermissionError({
-                    path: docRef.path,
-                    operation: 'delete',
-                } satisfies SecurityRuleContext);
-                errorEmitter.emit('permission-error', permissionError);
+                console.error('[Firestore delete error]', serverError?.code, serverError?.message, serverError);
+                if (serverError?.code === 'permission-denied') {
+                    const permissionError = new FirestorePermissionError({
+                        path: docRef.path,
+                        operation: 'delete',
+                    } satisfies SecurityRuleContext);
+                    errorEmitter.emit('permission-error', permissionError);
+                } else {
+                    toast({
+                        variant: 'destructive',
+                        title: 'Delete Failed',
+                        description: serverError?.message || 'An unexpected error occurred.',
+                    });
+                }
             });
     };
 
