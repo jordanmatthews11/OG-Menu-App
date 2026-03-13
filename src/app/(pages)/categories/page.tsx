@@ -1304,7 +1304,7 @@ const handleApplyToAll = (sourceConfig: TempConfiguration) => {
                                                                                         {slGroup.retailers.map(retailer => (
                                                                                             <div key={retailer.id} className="flex justify-between items-center text-[10px]">
                                                                                                 <p className="text-muted-foreground">{retailer.retailer}</p>
-                                                                                                <p className="font-mono text-muted-foreground">{retailer.weeklyQuota}w / {retailer.monthlyQuota}m</p>
+                                                                                                <p className="font-mono text-muted-foreground">{retailer.monthlyQuota}m</p>
                                                                                             </div>
                                                                                         ))}
                                                                                     </div>
@@ -1516,7 +1516,6 @@ const handleApplyToAll = (sourceConfig: TempConfiguration) => {
                                                             <TableRow>
                                                                 <TableHead className="h-6 p-1">Retailer</TableHead>
                                                                 <TableHead className="h-6 p-1">List Type</TableHead>
-                                                                <TableHead className="h-6 p-1 text-right">Weekly</TableHead>
                                                                 <TableHead className="h-6 p-1 text-right">Monthly</TableHead>
                                                             </TableRow>
                                                         </TableHeader>
@@ -1525,7 +1524,6 @@ const handleApplyToAll = (sourceConfig: TempConfiguration) => {
                                                                 <TableRow key={index} className="h-6">
                                                                     <TableCell className="p-1 font-medium">{item.name}</TableCell>
                                                                     <TableCell className="p-1 text-muted-foreground">{item.type}</TableCell>
-                                                                    <TableCell className="p-1 text-right font-mono">{item.weekly}</TableCell>
                                                                     <TableCell className="p-1 text-right font-mono">{item.monthly}</TableCell>
                                                                 </TableRow>
                                                             ))}
