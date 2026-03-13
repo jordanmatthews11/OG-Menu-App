@@ -1349,6 +1349,16 @@ export default function AdminConsolePage() {
                 Manage application data via CSV uploads or direct table editing.
             </p>
         </div>
+        <Button
+          asChild
+          size="sm"
+          variant="outline"
+          className="bg-white text-[#4A2D8A] border-[#4A2D8A]/40 hover:bg-white/90 hover:text-[#4A2D8A]"
+        >
+          <Link href="/all-orders">
+            Review Submitted Orders
+          </Link>
+        </Button>
       </div>
         <Alert variant="destructive" className="mb-6">
             <AlertTriangle className="h-4 w-4" />

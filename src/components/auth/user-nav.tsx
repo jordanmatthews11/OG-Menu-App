@@ -38,18 +38,28 @@ export function UserNav({ variant = "dropdown" }: { variant?: "dropdown" | "head
         <span className="text-sm font-medium text-white truncate max-w-[140px]">
           {user.displayName || user.email || "User"}
         </span>
-        <Button variant="outline" size="sm" className="border-white text-white hover:bg-white/10 hover:text-white" asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="bg-white/90 text-[#4A2D8A] border-white/50 hover:bg-white hover:text-[#4A2D8A]"
+          asChild
+        >
           <Link href={LOOM_VIDEO_URL} target="_blank" rel="noopener noreferrer">
             How to Use
           </Link>
         </Button>
-        <Button variant="outline" size="sm" className="border-white text-white hover:bg-white/10 hover:text-white" asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="bg-white/90 text-[#4A2D8A] border-white/50 hover:bg-white hover:text-[#4A2D8A]"
+          asChild
+        >
           <Link href="/admin-console">Admin</Link>
         </Button>
         <Button
           variant="outline"
           size="sm"
-          className="border-white text-white hover:bg-white/10 hover:text-white"
+          className="bg-white/90 text-[#4A2D8A] border-white/50 hover:bg-white hover:text-[#4A2D8A]"
           onClick={() => handleSignOut(auth)}
         >
           Sign Out
