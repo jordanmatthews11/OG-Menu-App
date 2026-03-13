@@ -54,6 +54,10 @@ const normalizeRetailerName = (name: string): string => {
     return lowerName;
 };
 
+/** Normalize name for holding-company match: strip "(All Banners)", trim, lowercase. */
+const normalizeForHoldingMatch = (name: string): string =>
+    name.replace(/\s*\(all banners\)\s*$/i, '').trim().toLowerCase();
+
 
 export default function ListGeniePage() {
     const firestore = useFirestore();
@@ -65,6 +69,7 @@ export default function ListGeniePage() {
     const [selectedCountry, setSelectedCountry] = useState<string>('');
     const [searchQuery, setSearchQuery] = useState('');
     const [preferredList, setPreferredList] = useState<RankedRetailer[]>([]);
+    const [expandedParentIds, setExpandedParentIds] = useState<Set<string>>(new Set());
     const [recommendations, setRecommendations] = useState<Recommendation[] | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
     const [showAllRecommendations, setShowAllRecommendations] = useState(false);
@@ -94,11 +99,15 @@ export default function ListGeniePage() {
                 return nameLower.includes(lowercasedQuery) || 
                        (normalizedQuery.length > 0 && nameNormalized.includes(normalizedQuery));
             })
-            .filter(b => !preferredList.some(pr => pr.id === b.id));
-    }, [boosters, selectedCountry, searchQuery, preferredList]);
+            .filter(b => !preferredList.some(pr => pr.id === b.id))
+            .filter(b => !expandedParentIds.has(b.id));
+    }, [boosters, selectedCountry, searchQuery, preferredList, expandedParentIds]);
 
     const handleAddRetailer = (retailer: Booster) => {
-        const holding = holdingCompanies?.find(hc => hc.name === retailer.name && hc.country === selectedCountry);
+        const retailerNorm = normalizeForHoldingMatch(retailer.name);
+        const holding = holdingCompanies?.find(
+            hc => normalizeForHoldingMatch(hc.name) === retailerNorm && hc.country === selectedCountry
+        );
         if (holding && boosters) {
             const existingIds = new Set(preferredList.map(pr => pr.id));
             const toAdd: RankedRetailer[] = [];
@@ -111,6 +120,7 @@ export default function ListGeniePage() {
                 }
             }
             if (toAdd.length > 0) {
+                setExpandedParentIds(prev => new Set(prev).add(retailer.id));
                 setPreferredList(prev => [...prev, ...toAdd]);
             } else {
                 setPreferredList(prev => [...prev, { ...retailer, rank: prev.length + 1 }]);
