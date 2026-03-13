@@ -1190,7 +1190,7 @@ const handleApplyToAll = (sourceConfig: TempConfiguration) => {
                         <CardHeader className="p-2">
                             <CardTitle className="text-xs">Selected Categories</CardTitle>
                         </CardHeader>
-                        <CardContent className="flex-grow overflow-hidden p-2 pt-0">
+                        <CardContent className="flex-grow overflow-hidden px-1 py-2 pt-0">
                             <ScrollArea className="h-full">
                                 <div className="space-y-2">
                                     {tempConfigs.map(config => {
@@ -1556,21 +1556,21 @@ const handleApplyToAll = (sourceConfig: TempConfiguration) => {
                                                     <Table className="text-[10px]">
                                                         <TableHeader>
                                                             <TableRow>
-                                                                <TableHead className="h-6 p-1">Retailer</TableHead>
-                                                                <TableHead className="h-6 p-1">List Type</TableHead>
-                                                                <TableHead className="h-6 p-1 text-right">Monthly</TableHead>
+                                                                <TableHead className="h-6 px-0.5 py-1">Retailer</TableHead>
+                                                                <TableHead className="h-6 px-0.5 py-1">List Type</TableHead>
+                                                                <TableHead className="h-6 px-0.5 py-1 text-right">Monthly</TableHead>
                                                             </TableRow>
                                                         </TableHeader>
                                                         <TableBody>
                                                             {allRetailers.map((item, index) => (
                                                                 <TableRow key={index} className="h-6">
-                                                                    <TableCell className="p-1 font-medium">{item.name}</TableCell>
-                                                                    <TableCell className="p-1 text-muted-foreground">
+                                                                    <TableCell className="px-0.5 py-1 font-medium">{item.name}</TableCell>
+                                                                    <TableCell className="px-0.5 py-1 text-muted-foreground">
                                                                         {item.type === 'Standard' && 'boosterExtra' in item && item.boosterExtra
                                                                             ? <>Standard <span className="text-[9px] text-primary font-medium">(Boosted - Add {item.boosterExtra})</span></>
                                                                             : item.type}
                                                                     </TableCell>
-                                                                    <TableCell className="p-1 text-right font-mono">{item.monthly}</TableCell>
+                                                                    <TableCell className="px-0.5 py-1 text-right font-mono">{item.monthly}</TableCell>
                                                                 </TableRow>
                                                             ))}
                                                         </TableBody>
