@@ -17,7 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, Upload, FileCode, Search, X, FileSpreadsheet, PlusCircle, Edit, Trash2, ArrowUpDown, Download, ChevronsUpDown, AlertTriangle, Wand2, Check, MinusCircle, History } from 'lucide-react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
-import type { Category, StoreList, Booster, CustomCategoryCode, AuthorizedUser, Feedback, LegacyCode } from '@/lib/types';
+import type { Category, StoreList, Booster, HoldingCompany, CustomCategoryCode, AuthorizedUser, Feedback, LegacyCode } from '@/lib/types';
 import { useFirestore, useCollection, useMemoFirebase, useUser, errorEmitter } from '@/firebase';
 import { collection, doc, writeBatch, setDoc, deleteDoc, getDocs, query, limit } from 'firebase/firestore';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -40,8 +40,8 @@ import { notifyCategoryUpdate } from '@/app/actions/notify';
 import { FirestorePermissionError, type SecurityRuleContext } from '@/firebase/errors';
 
 
-type DataType = 'categories' | 'storeLists' | 'boosters' | 'customCategoryCodes' | 'authorizedUsers' | 'feedback' | 'legacyCodes';
-type Entity = Category | StoreList | Booster | CustomCategoryCode | AuthorizedUser | Feedback | LegacyCode;
+type DataType = 'categories' | 'storeLists' | 'boosters' | 'holdingCompanies' | 'customCategoryCodes' | 'authorizedUsers' | 'feedback' | 'legacyCodes';
+type Entity = Category | StoreList | Booster | HoldingCompany | CustomCategoryCode | AuthorizedUser | Feedback | LegacyCode;
 type SortConfig<T> = { key: keyof T, direction: 'asc' | 'desc' } | null;
 
 
@@ -78,6 +78,12 @@ const storeListGroupSchema = z.object({
 const boosterSchema = z.object({
     name: z.string().min(1, "Booster name is required"),
     country: z.string().min(1, "Country is required"),
+});
+
+const holdingCompanySchema = z.object({
+    name: z.string().min(1, "Name is required"),
+    country: z.string().min(1, "Country is required"),
+    banners: z.string().min(1, "At least one banner is required"),
 });
 
 const customCategoryCodeSchema = z.object({
@@ -118,6 +124,7 @@ const schemas: Record<DataType, z.ZodObject<any, any>> = {
     categories: categorySchema,
     storeLists: storeListSchema,
     boosters: boosterSchema,
+    holdingCompanies: holdingCompanySchema,
     customCategoryCodes: customCategoryCodeSchema,
     authorizedUsers: authorizedUserSchema,
     feedback: feedbackSchema,
@@ -128,6 +135,7 @@ const defaultValues: Record<DataType, any> = {
     categories: { name: '', department: '', subDepartment: '', number: '', country: '', premium: false, description: '', notes: '' },
     storeLists: { name: '', retailer: '', country: '', weeklyQuota: 0, monthlyQuota: 0 },
     boosters: { name: '', country: '' },
+    holdingCompanies: { name: '', country: '', banners: '' },
     customCategoryCodes: { timestamp: new Date().toISOString(), submittedBy: '', customer: '', category: '', categoryCode: '', codeType: 'Custom', jobIds: '', notes: '' },
     authorizedUsers: { name: '', email: '' },
     feedback: { timestamp: new Date().toISOString(), name: '', email: '', feedbackType: 'general', description: '', details: '', page: '', feedbackStatus: 'New', adminNotes: '' },
@@ -784,7 +792,16 @@ function EditDialog({
 
     useEffect(() => {
         if (isOpen) {
-            form.reset(isNew ? defaultValues[dataType] : entity);
+            if (isNew) {
+                form.reset(defaultValues[dataType]);
+            } else if (entity) {
+                if (dataType === 'holdingCompanies') {
+                    const hc = entity as HoldingCompany;
+                    form.reset({ ...hc, banners: Array.isArray(hc.banners) ? hc.banners.join(', ') : (hc.banners ?? '') });
+                } else {
+                    form.reset(entity);
+                }
+            }
         }
     }, [isOpen, entity, isNew, dataType, form]);
 
@@ -802,7 +819,7 @@ function EditDialog({
         if (typeName === 'ZodEnum') return 'select';
         if (typeName === 'ZodBoolean') return 'checkbox';
         if (typeName === 'ZodNumber') return 'number';
-        if (['description', 'details', 'notes', 'adminNotes'].includes(fieldName)) return 'textarea';
+        if (['description', 'details', 'notes', 'adminNotes', 'banners'].includes(fieldName)) return 'textarea';
         return 'text';
     };
 
@@ -829,6 +846,10 @@ function EditDialog({
                 Object.entries(values).filter(([_, v]) => v !== undefined)
             );
             let dataToSave: any = { ...cleanedValues };
+
+            if (dataType === 'holdingCompanies' && typeof dataToSave.banners === 'string') {
+                dataToSave.banners = dataToSave.banners.split(',').map((s: string) => s.trim()).filter(Boolean);
+            }
 
             if (isNew) {
                 const newDocRef = doc(collection(firestore, dataType));
@@ -1195,6 +1216,9 @@ function DataTable<T extends Entity>({ columns, data, isLoading, tableName, data
                                             if (typeof val === 'boolean') {
                                                 return <Badge variant={val ? 'default' : 'secondary'}>{val ? 'Yes' : 'No'}</Badge>;
                                             }
+                                            if (Array.isArray(val)) {
+                                                return val.join(', ');
+                                            }
                                             return val;
                                         })()}
                                     </TableCell>
@@ -1310,6 +1334,11 @@ function LegacyCodesTable({ data, isLoading, onDataChange }: { data: LegacyCode[
     return <DataTable columns={columns} data={data} isLoading={isLoading} tableName="LegacyCodes" dataType="legacyCodes" onDataChange={onDataChange} />;
 }
 
+function HoldingCompaniesTable({ data, isLoading, onDataChange }: { data: HoldingCompany[] | null; isLoading: boolean; onDataChange: () => void; }) {
+    const columns: (keyof HoldingCompany)[] = ['name', 'country', 'banners'];
+    return <DataTable columns={columns} data={data} isLoading={isLoading} tableName="Holding Companies" dataType="holdingCompanies" onDataChange={onDataChange} />;
+}
+
 export default function AdminConsolePage() {
   const [version, setVersion] = useState(0);
   const firestore = useFirestore();
@@ -1326,6 +1355,7 @@ export default function AdminConsolePage() {
   const { data: authorizedUsers, isLoading: isLoadingAuthorizedUsers, refetch: refetchAuthorizedUsers } = useCollection<AuthorizedUser>(useMemoFirebase(() => firestore ? collection(firestore, 'authorizedUsers') : null, [firestore, version]));
   const { data: feedback, isLoading: isLoadingFeedback, refetch: refetchFeedback } = useCollection<Feedback>(useMemoFirebase(() => firestore ? collection(firestore, 'feedback') : null, [firestore, version]));
   const { data: legacyCodes, isLoading: isLoadingLegacyCodes, refetch: refetchLegacyCodes } = useCollection<LegacyCode>(useMemoFirebase(() => firestore ? collection(firestore, 'legacyCodes') : null, [firestore, version]));
+  const { data: holdingCompanies, isLoading: isLoadingHoldingCompanies, refetch: refetchHoldingCompanies } = useCollection<HoldingCompany>(useMemoFirebase(() => firestore ? collection(firestore, 'holdingCompanies') : null, [firestore, version]));
 
   const isUserAuthorized = useMemo(() => {
     if (!user || !authorizedUsers) return false;
@@ -1336,13 +1366,14 @@ export default function AdminConsolePage() {
     refetchCategories();
     refetchStoreLists();
     refetchBoosters();
+    refetchHoldingCompanies();
     refetchCustomCategoryCodes();
     refetchAuthorizedUsers();
     refetchFeedback();
     refetchLegacyCodes();
-  }, [refetchCategories, refetchStoreLists, refetchBoosters, refetchCustomCategoryCodes, refetchAuthorizedUsers, refetchFeedback, refetchLegacyCodes]);
+  }, [refetchCategories, refetchStoreLists, refetchBoosters, refetchHoldingCompanies, refetchCustomCategoryCodes, refetchAuthorizedUsers, refetchFeedback, refetchLegacyCodes]);
 
-  const isLoading = isLoadingCategories || isLoadingStoreLists || isLoadingBoosters || isLoadingCustomCategoryCodes || isLoadingAuthorizedUsers || isLoadingFeedback || isLoadingLegacyCodes;
+  const isLoading = isLoadingCategories || isLoadingStoreLists || isLoadingBoosters || isLoadingHoldingCompanies || isLoadingCustomCategoryCodes || isLoadingAuthorizedUsers || isLoadingFeedback || isLoadingLegacyCodes;
 
   const getCount = (data: any[] | null) => (data ? `(${data.length})` : '(...)');
 
@@ -1394,6 +1425,7 @@ export default function AdminConsolePage() {
             <TabsTrigger value="categories" className="text-[11px]">Categories {getCount(categories)}</TabsTrigger>
             <TabsTrigger value="storeLists" className="text-[11px]">Store Lists {getCount(storeLists)}</TabsTrigger>
             <TabsTrigger value="boosters" className="text-[11px]">Boosters {getCount(boosters)}</TabsTrigger>
+            <TabsTrigger value="holdingCompanies" className="text-[11px]">Holding Companies {getCount(holdingCompanies)}</TabsTrigger>
             <TabsTrigger value="customCategoryCodes" className="text-[11px]">Custom Codes {getCount(customCategoryCodes)}</TabsTrigger>
             <TabsTrigger value="authorizedUsers" className="text-[11px]">Authorized Users {getCount(authorizedUsers)}</TabsTrigger>
             <TabsTrigger value="feedback" className="text-[11px]">Feedback {getCount(feedback)}</TabsTrigger>
@@ -1415,6 +1447,13 @@ export default function AdminConsolePage() {
              <Card>
                 <CardHeader><CardTitle className="text-[11px]">Boosters</CardTitle></CardHeader>
                 <CardContent><BoostersTable data={boosters} isLoading={isLoading} onDataChange={handleCompositeDataChange} /></CardContent>
+            </Card>
+          </TabsContent>
+          <TabsContent value="holdingCompanies">
+             <Card>
+                <CardHeader><CardTitle className="text-[11px]">Retailer Holding Companies</CardTitle></CardHeader>
+                <CardDescription className="text-[11px] px-6 pb-2">Parent retailers (e.g. Kroger (All Banners)) and their banner list. Used by List Genie to expand into individual retailers.</CardDescription>
+                <CardContent><HoldingCompaniesTable data={holdingCompanies} isLoading={isLoading} onDataChange={handleCompositeDataChange} /></CardContent>
             </Card>
           </TabsContent>
           <TabsContent value="customCategoryCodes">

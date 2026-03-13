@@ -39,6 +39,13 @@ export type Booster = {
     isCustom?: boolean;
 };
 
+export type HoldingCompany = {
+    id: string;
+    name: string;
+    banners: string[];
+    country: Country;
+};
+
 export type CustomCategoryCode = {
     id: string;
     timestamp: string;

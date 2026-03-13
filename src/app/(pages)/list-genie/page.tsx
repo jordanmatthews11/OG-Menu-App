@@ -10,7 +10,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, GripVertical, Loader2, Search, Wand2, X, Check, Info, Download, FileSpreadsheet } from "lucide-react";
 import Link from "next/link";
-import type { Booster, StoreList } from '@/lib/types';
+import type { Booster, StoreList, HoldingCompany } from '@/lib/types';
 import { useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { collection } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
@@ -59,6 +59,7 @@ export default function ListGeniePage() {
     const firestore = useFirestore();
     const { data: boosters, isLoading: isLoadingBoosters } = useCollection<Booster>(useMemoFirebase(() => firestore ? collection(firestore, 'boosters') : null, [firestore]));
     const { data: storeLists, isLoading: isLoadingStoreLists } = useCollection<StoreList>(useMemoFirebase(() => firestore ? collection(firestore, 'storeLists') : null, [firestore]));
+    const { data: holdingCompanies } = useCollection<HoldingCompany>(useMemoFirebase(() => firestore ? collection(firestore, 'holdingCompanies') : null, [firestore]));
     const { toast } = useToast();
 
     const [selectedCountry, setSelectedCountry] = useState<string>('');
@@ -97,7 +98,26 @@ export default function ListGeniePage() {
     }, [boosters, selectedCountry, searchQuery, preferredList]);
 
     const handleAddRetailer = (retailer: Booster) => {
-        setPreferredList(prev => [...prev, { ...retailer, rank: prev.length + 1 }]);
+        const holding = holdingCompanies?.find(hc => hc.name === retailer.name && hc.country === selectedCountry);
+        if (holding && boosters) {
+            const existingIds = new Set(preferredList.map(pr => pr.id));
+            const toAdd: RankedRetailer[] = [];
+            let nextRank = preferredList.length + 1;
+            for (const bannerName of holding.banners) {
+                const matchingBooster = boosters.find(b => b.name === bannerName && b.country === selectedCountry);
+                if (matchingBooster && !existingIds.has(matchingBooster.id)) {
+                    toAdd.push({ ...matchingBooster, rank: nextRank++ });
+                    existingIds.add(matchingBooster.id);
+                }
+            }
+            if (toAdd.length > 0) {
+                setPreferredList(prev => [...prev, ...toAdd]);
+            } else {
+                setPreferredList(prev => [...prev, { ...retailer, rank: prev.length + 1 }]);
+            }
+        } else {
+            setPreferredList(prev => [...prev, { ...retailer, rank: prev.length + 1 }]);
+        }
     };
 
     const handleRemoveRetailer = (retailerId: string) => {
