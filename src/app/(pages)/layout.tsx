@@ -35,7 +35,7 @@ export default function PagesLayout({
                 className="h-8 w-auto"
                 priority
               />
-              <span className="text-white font-semibold text-lg hidden sm:inline">Storesight Menu</span>
+              <span className="text-white font-semibold text-lg hidden sm:inline">Menu</span>
             </Link>
           </div>
           <div className="flex items-center gap-2">
