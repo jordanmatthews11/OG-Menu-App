@@ -1,7 +1,7 @@
-\"use client\";
+"use client";
 
-import { useMemo } from \"react\";
-import { useAuth, handleSignOut, useUser, useFirestore, useCollection, useMemoFirebase } from \"@/firebase\";
+import { useMemo } from "react";
+import { useAuth, handleSignOut, useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,11 +11,11 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from \"@/components/ui/dropdown-menu\";
-import { LogOut, User as UserIcon } from \"lucide-react\";
-import Link from \"next/link\";
-import type { AuthorizedUser } from \"@/lib/types\";
-import { collection } from \"firebase/firestore\";
+} from "@/components/ui/dropdown-menu";
+import { LogOut, User as UserIcon } from "lucide-react";
+import Link from "next/link";
+import type { AuthorizedUser } from "@/lib/types";
+import { collection } from "firebase/firestore";
 
 export function UserNav({ variant = "dropdown" }: { variant?: "dropdown" | "header" }) {
   const { auth } = useAuth();

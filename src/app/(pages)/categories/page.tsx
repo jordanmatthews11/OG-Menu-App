@@ -1052,10 +1052,10 @@ const handleApplyToAll = (sourceConfig: TempConfiguration) => {
                                 <TableHead className={cn(getHeaderClass('department'), "w-[10%] p-1.5 text-[10px]")} onClick={() => handleSort('department')}>
                                     <div className="flex items-center">Department {renderSortIcon('department')}</div>
                                 </TableHead>
-                                <TableHead className={cn(getHeaderClass('exampleBrands'), "w-[10%] p-1.5 text-[10px]")} onClick={() => handleSort('exampleBrands')}>
+                                <TableHead className={cn(getHeaderClass('exampleBrands'), "w-[18%] p-1.5 text-[10px]")} onClick={() => handleSort('exampleBrands')}>
                                     <div className="flex items-center">Example Brands {renderSortIcon('exampleBrands')}</div>
                                 </TableHead>
-                                <TableHead className={cn(getHeaderClass('description'), "w-[40%] p-1.5 text-[10px]")} onClick={() => handleSort('description')}>
+                                <TableHead className={cn(getHeaderClass('description'), "w-[30%] p-1.5 text-[10px]")} onClick={() => handleSort('description')}>
                                     <div className="flex items-center">Description {renderSortIcon('description')}</div>
                                 </TableHead>
                                     <TableHead className={cn(getHeaderClass('notes'), "w-[25%] p-1.5 text-[10px]")} onClick={() => handleSort('notes')}>
