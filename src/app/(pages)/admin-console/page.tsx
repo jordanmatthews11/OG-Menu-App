@@ -18,7 +18,7 @@ import { Loader2, Upload, FileCode, Search, X, FileSpreadsheet, PlusCircle, Edit
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 import type { Category, StoreList, Booster, CustomCategoryCode, AuthorizedUser, Feedback, LegacyCode } from '@/lib/types';
-import { useFirestore, useCollection, useMemoFirebase, errorEmitter } from '@/firebase';
+import { useFirestore, useCollection, useMemoFirebase, useUser, errorEmitter } from '@/firebase';
 import { collection, doc, writeBatch, setDoc, deleteDoc, getDocs, query, limit } from 'firebase/firestore';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from "@/components/ui/badge";
@@ -1313,6 +1313,7 @@ function LegacyCodesTable({ data, isLoading, onDataChange }: { data: LegacyCode[
 export default function AdminConsolePage() {
   const [version, setVersion] = useState(0);
   const firestore = useFirestore();
+  const { user } = useUser();
 
   const handleDataChange = useCallback(() => {
     setVersion(v => v + 1);
@@ -1325,6 +1326,11 @@ export default function AdminConsolePage() {
   const { data: authorizedUsers, isLoading: isLoadingAuthorizedUsers, refetch: refetchAuthorizedUsers } = useCollection<AuthorizedUser>(useMemoFirebase(() => firestore ? collection(firestore, 'authorizedUsers') : null, [firestore, version]));
   const { data: feedback, isLoading: isLoadingFeedback, refetch: refetchFeedback } = useCollection<Feedback>(useMemoFirebase(() => firestore ? collection(firestore, 'feedback') : null, [firestore, version]));
   const { data: legacyCodes, isLoading: isLoadingLegacyCodes, refetch: refetchLegacyCodes } = useCollection<LegacyCode>(useMemoFirebase(() => firestore ? collection(firestore, 'legacyCodes') : null, [firestore, version]));
+
+  const isUserAuthorized = useMemo(() => {
+    if (!user || !authorizedUsers) return false;
+    return authorizedUsers.some((authUser) => authUser.email === user.email);
+  }, [user, authorizedUsers]);
 
   const handleCompositeDataChange = useCallback(() => {
     refetchCategories();
@@ -1339,6 +1345,19 @@ export default function AdminConsolePage() {
   const isLoading = isLoadingCategories || isLoadingStoreLists || isLoadingBoosters || isLoadingCustomCategoryCodes || isLoadingAuthorizedUsers || isLoadingFeedback || isLoadingLegacyCodes;
 
   const getCount = (data: any[] | null) => (data ? `(${data.length})` : '(...)');
+
+  if (!isLoadingAuthorizedUsers && !isUserAuthorized) {
+    return (
+      <div className="container mx-auto max-w-full">
+        <Alert variant="destructive" className="mt-6">
+          <AlertTitle className="text-[11px]">No access to Admin Console</AlertTitle>
+          <AlertDescription className="text-[11px]">
+            You don't have permission to view this page. If you believe this is an error, please contact an administrator.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto max-w-full">

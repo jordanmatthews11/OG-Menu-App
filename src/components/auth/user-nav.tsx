@@ -1,6 +1,7 @@
-"use client";
+\"use client\";
 
-import { useAuth, handleSignOut, useUser } from "@/firebase";
+import { useMemo } from \"react\";
+import { useAuth, handleSignOut, useUser, useFirestore, useCollection, useMemoFirebase } from \"@/firebase\";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,15 +11,28 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { LogOut, User as UserIcon } from "lucide-react";
-import Link from "next/link";
-
-const LOOM_VIDEO_URL = "https://www.loom.com/share/97510bf52b04407e8b16c3376fb10f92?sid=97cb4f95-7c5a-444c-a8fb-c9e82a87b97f";
+} from \"@/components/ui/dropdown-menu\";
+import { LogOut, User as UserIcon } from \"lucide-react\";
+import Link from \"next/link\";
+import type { AuthorizedUser } from \"@/lib/types\";
+import { collection } from \"firebase/firestore\";
 
 export function UserNav({ variant = "dropdown" }: { variant?: "dropdown" | "header" }) {
   const { auth } = useAuth();
   const { user } = useUser();
+  const firestore = useFirestore();
+
+  const { data: authorizedUsers, isLoading: isLoadingAuthorizedUsers } = useCollection<AuthorizedUser>(
+    useMemoFirebase(
+      () => (firestore ? collection(firestore, "authorizedUsers") : null),
+      [firestore]
+    )
+  );
+
+  const isUserAuthorized = useMemo(() => {
+    if (!user || !authorizedUsers) return false;
+    return authorizedUsers.some((authUser) => authUser.email === user.email);
+  }, [user, authorizedUsers]);
 
   if (!user) {
     return null;
@@ -38,24 +52,16 @@ export function UserNav({ variant = "dropdown" }: { variant?: "dropdown" | "head
         <span className="text-sm font-medium text-white truncate max-w-[140px]">
           {user.displayName || user.email || "User"}
         </span>
-        <Button
-          variant="outline"
-          size="sm"
-          className="bg-white/90 text-[#4A2D8A] border-white/50 hover:bg-white hover:text-[#4A2D8A]"
-          asChild
-        >
-          <Link href={LOOM_VIDEO_URL} target="_blank" rel="noopener noreferrer">
-            How to Use
-          </Link>
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="bg-white/90 text-[#4A2D8A] border-white/50 hover:bg-white hover:text-[#4A2D8A]"
-          asChild
-        >
-          <Link href="/admin-console">Admin</Link>
-        </Button>
+        {!isLoadingAuthorizedUsers && isUserAuthorized && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="bg-white/90 text-[#4A2D8A] border-white/50 hover:bg-white hover:text-[#4A2D8A]"
+            asChild
+          >
+            <Link href="/admin-console">Admin</Link>
+          </Button>
+        )}
         <Button
           variant="outline"
           size="sm"
