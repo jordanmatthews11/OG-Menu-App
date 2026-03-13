@@ -35,7 +35,9 @@ export default function PagesLayout({
                 className="h-8 w-auto"
                 priority
               />
-              <span className="text-white font-semibold text-lg hidden sm:inline">Menu</span>
+              <span className="text-white font-semibold text-2xl leading-none hidden sm:inline">
+                Menu
+              </span>
             </Link>
           </div>
           <div className="flex items-center gap-2">
