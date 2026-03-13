@@ -142,36 +142,25 @@ function DatePicker({
 const TotalRequestCard = ({ config }: { config: TempConfiguration }) => {
     const total = useMemo(() => {
         const boosterTotal = config.boosters.reduce((sum, b) => sum + b.storeCount, 0);
-        const standardWeeklyTotal = config.storeLists.reduce((sum, sl) => sum + (sl.weeklyQuota || 0), 0);
         const standardMonthlyTotal = config.storeLists.reduce((sum, sl) => sum + (sl.monthlyQuota || 0), 0);
 
         return {
-            weeklyTotal: standardWeeklyTotal + Math.round(boosterTotal / 4),
             monthlyTotal: standardMonthlyTotal + boosterTotal,
-            standardWeeklyTotal,
             standardMonthlyTotal,
         };
     }, [config]);
 
     return (
          <Card>
-            <CardHeader className="p-3">
+            <CardHeader className="p-2">
                 <CardTitle className="text-sm">Total Request</CardTitle>
             </CardHeader>
-            <CardContent className="p-3 pt-0 space-y-2">
-                <div className="flex justify-between items-center text-xs">
-                    <p className="text-muted-foreground">Standard Weekly Quota:</p>
-                    <p className="font-medium">{total.standardWeeklyTotal} stores</p>
-                </div>
+            <CardContent className="p-2 pt-0 space-y-1.5">
                 <div className="flex justify-between items-center text-xs">
                     <p className="text-muted-foreground">Standard Monthly Quota:</p>
                     <p className="font-medium">{total.standardMonthlyTotal} stores</p>
                 </div>
                 <Separator/>
-                <div className="flex justify-between items-center font-bold text-xs">
-                    <p>Total Weekly Stores:</p>
-                    <p>{total.weeklyTotal} stores</p>
-                </div>
                 <div className="flex justify-between items-center font-bold text-xs">
                     <p>Total Monthly Stores:</p>
                     <p>{total.monthlyTotal} stores</p>
@@ -1304,7 +1293,7 @@ const handleApplyToAll = (sourceConfig: TempConfiguration) => {
                                                                                         {slGroup.retailers.map(retailer => (
                                                                                             <div key={retailer.id} className="flex justify-between items-center text-[10px]">
                                                                                                 <p className="text-muted-foreground">{retailer.retailer}</p>
-                                                                                                <p className="font-mono text-muted-foreground">{retailer.monthlyQuota}m</p>
+                                                                                                <p className="font-mono text-muted-foreground">{retailer.monthlyQuota} per month</p>
                                                                                             </div>
                                                                                         ))}
                                                                                     </div>
@@ -1479,18 +1468,71 @@ const handleApplyToAll = (sourceConfig: TempConfiguration) => {
                     <div className='space-y-2 flex-grow flex flex-col min-h-0'>
                         <h4 className="font-semibold text-sm">Selection Summary</h4>
                         <ScrollArea className="flex-grow">
-                            <div className="space-y-3 pr-2">
+                            <div className="space-y-2 pr-2">
                                 {tempConfigs.map(config => {
+                                    const retailerMap = new Map<string, { name: string; type: 'Standard' | 'Booster'; weekly: number; monthly: number; boosterExtra?: number }>();
+
+                                    // Aggregate standard lists by retailer
+                                    config.storeLists.forEach((sl) => {
+                                        const existing = retailerMap.get(sl.retailer);
+                                        const weekly = sl.weeklyQuota || 0;
+                                        const monthly = sl.monthlyQuota || 0;
+
+                                        if (existing) {
+                                            existing.weekly += weekly;
+                                            existing.monthly += monthly;
+                                        } else {
+                                            retailerMap.set(sl.retailer, {
+                                                name: sl.retailer,
+                                                type: 'Standard',
+                                                weekly,
+                                                monthly,
+                                            });
+                                        }
+                                    });
+
+                                    const customBoosters: { name: string; type: string; weekly: number; monthly: number }[] = [];
+
+                                    // Apply boosters
+                                    config.boosters.forEach((b) => {
+                                        const weekly = Math.round(b.storeCount / 4);
+                                        const monthly = b.storeCount;
+
+                                        if (b.booster.isCustom) {
+                                            customBoosters.push({
+                                                name: b.booster.name,
+                                                type: 'Custom Booster',
+                                                weekly,
+                                                monthly,
+                                            });
+                                            return;
+                                        }
+
+                                        const existing = retailerMap.get(b.booster.name);
+                                        if (existing) {
+                                            existing.weekly += weekly;
+                                            existing.monthly += monthly;
+                                            existing.boosterExtra = (existing.boosterExtra || 0) + monthly;
+                                        } else {
+                                            retailerMap.set(b.booster.name, {
+                                                name: b.booster.name,
+                                                type: 'Booster',
+                                                weekly,
+                                                monthly,
+                                            });
+                                        }
+                                    });
+
                                     const allRetailers = [
-                                        ...config.storeLists.map(sl => ({ name: sl.retailer, type: 'Standard', weekly: sl.weeklyQuota, monthly: sl.monthlyQuota })),
-                                        ...config.boosters.map(b => ({ name: b.booster.name, type: b.booster.isCustom ? 'Custom Booster' : 'Booster', weekly: Math.round(b.storeCount / 4), monthly: b.storeCount })),
-                                    ].sort((a,b) => a.name.localeCompare(b.name));
+                                        ...Array.from(retailerMap.values()),
+                                        ...customBoosters,
+                                    ].sort((a, b) => a.name.localeCompare(b.name));
                                     const uniqueStoreListCount = new Set(config.storeLists.map(sl => sl.name)).size;
                                     const isConfigIncomplete = (uniqueStoreListCount === 0 && !config.proceedWithoutStandardList) || !config.startDate || !config.endDate;
 
                                     return (
                                         <Card key={config.category.id} className="overflow-hidden">
-                                            <CardHeader className="p-2 bg-muted/50">
+                                            <CardHeader className="px-2 py-1 bg-muted/50">
                                                 <CardTitle className="text-sm flex justify-between items-center">
                                                     <span>{config.category.name} <Badge variant="outline" className="text-[10px]">{config.category.country}</Badge></span>
                                                     {isConfigIncomplete && (
@@ -1507,7 +1549,7 @@ const handleApplyToAll = (sourceConfig: TempConfiguration) => {
                                                     </CardDescription>
                                                 )}
                                             </CardHeader>
-                                            <CardContent className="p-2 space-y-2">
+                                            <CardContent className="p-1.5 space-y-1.5">
                                                 {allRetailers.length === 0 ? (
                                                     <p className="text-[10px] text-muted-foreground text-center py-2">No selections made.</p>
                                                 ) : (
@@ -1523,7 +1565,11 @@ const handleApplyToAll = (sourceConfig: TempConfiguration) => {
                                                             {allRetailers.map((item, index) => (
                                                                 <TableRow key={index} className="h-6">
                                                                     <TableCell className="p-1 font-medium">{item.name}</TableCell>
-                                                                    <TableCell className="p-1 text-muted-foreground">{item.type}</TableCell>
+                                                                    <TableCell className="p-1 text-muted-foreground">
+                                                                        {item.type === 'Standard' && 'boosterExtra' in item && item.boosterExtra
+                                                                            ? <>Standard <span className="text-[9px] text-primary font-medium">(Boosted - Add {item.boosterExtra})</span></>
+                                                                            : item.type}
+                                                                    </TableCell>
                                                                     <TableCell className="p-1 text-right font-mono">{item.monthly}</TableCell>
                                                                 </TableRow>
                                                             ))}

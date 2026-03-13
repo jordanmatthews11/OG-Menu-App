@@ -8,6 +8,9 @@ import { FirebaseClientProvider } from '@/firebase';
 export const metadata: Metadata = {
   title: 'Storesight',
   description: 'Internal tool for Storesight sales and operations teams.',
+  icons: {
+    icon: '/favicon.png',
+  },
 };
 
 export default function RootLayout({
