@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   title: 'Storesight',
   description: 'Internal tool for Storesight sales and operations teams.',
   icons: {
-    icon: '/favicon.png',
+    icon: '/icon.png',
   },
 };
 
