@@ -1,0 +1,7 @@
+# See https://www.robotstxt.org/robotstxt.html for documentation on how to use the robots.txt file
+#
+# To ban all crawlers from the entire site uncomment the following line:
+# Disallow: /
+
+User-agent: *
+Disallow:

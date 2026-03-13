@@ -1,0 +1,176 @@
+
+{
+  "entities": {
+    "Country": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Country",
+      "type": "object",
+      "description": "Represents a geographical country supported by Storesight.",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" }
+      },
+      "required": ["id", "name", "code"]
+    },
+    "Category": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Category",
+      "type": "object",
+      "description": "Represents a retail category offered by Storesight.",
+      "properties": {
+        "id": { "type": "string" },
+        "country": { "type": "string" },
+        "department": { "type": "string" },
+        "subDepartment": { "type": "string" },
+        "name": { "type": "string" },
+        "number": { "type": "string" },
+        "description": { "type": "string" },
+        "exampleBrands": { "type": "string" },
+        "premium": { "type": "boolean" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "name", "number", "country"]
+    },
+    "StoreList": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "StoreList",
+      "type": "object",
+      "description": "Represents a standard list of stores available for subscription.",
+      "properties": {
+        "id": { "type": "string" },
+        "country": { "type": "string" },
+        "name": { "type": "string" },
+        "retailer": { "type": "string" },
+        "weeklyQuota": { "type": "number" },
+        "monthlyQuota": { "type": "number" }
+      },
+      "required": ["id", "country", "name", "retailer"]
+    },
+    "Booster": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Booster",
+      "type": "object",
+      "description": "Represents an optional booster retailer.",
+      "properties": {
+        "id": { "type": "string" },
+        "country": { "type": "string" },
+        "name": { "type": "string" },
+        "isCustom": { "type": "boolean" }
+      },
+      "required": ["id", "country", "name"]
+    },
+    "Order": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Order",
+      "type": "object",
+      "description": "Represents a customer's subscription order.",
+      "properties": {
+        "id": { "type": "string" },
+        "customer": { "type": "string" },
+        "submittedBy": { "type": "string" },
+        "submitterEmail": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["New", "In Progress", "Complete", "On Hold", "Cancelled", "Deleted"] },
+        "hubspotDealId": { "type": "string" },
+        "typeOfCollection": { "type": "string" },
+        "opsTeamNotes": { "type": "string" }
+      },
+      "required": ["id", "customer", "submittedBy", "timestamp", "status"]
+    },
+    "SupportRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "SupportRequest",
+      "type": "object",
+      "description": "Represents an internal support request.",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "name": { "type": "string" },
+        "urgency": { "type": "number" },
+        "status": { "type": "string" },
+        "requestType": { "type": "string" },
+        "issueType": { "type": "string" },
+        "customer": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "name", "urgency", "status"]
+    },
+    "CustomCategoryCode": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "CustomCategoryCode",
+      "type": "object",
+      "description": "Represents a custom category code mapping.",
+      "properties": {
+        "id": { "type": "string" },
+        "category": { "type": "string" },
+        "categoryCode": { "type": "string" },
+        "customer": { "type": "string" },
+        "codeType": { "type": "string" }
+      },
+      "required": ["id", "category", "categoryCode"]
+    },
+    "LegacyCode": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "LegacyCode",
+      "type": "object",
+      "description": "Represents a raw collection code from legacy uploads.",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "code", "timestamp"]
+    },
+    "AuthorizedUser": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "AuthorizedUser",
+      "type": "object",
+      "description": "A user authorized to access the Storesight Menu.",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" }
+      },
+      "required": ["id", "email"]
+    },
+    "Feedback": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Feedback",
+      "type": "object",
+      "description": "User feedback submission.",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "description"]
+    },
+    "AdminRole": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "AdminRole",
+      "type": "object",
+      "description": "Marker document for admin privileges.",
+      "properties": {
+        "uid": { "type": "string" }
+      },
+      "required": ["uid"]
+    }
+  },
+  "auth": {
+    "providers": ["google.com"]
+  },
+  "firestore": {
+    "/categories/{id}": { "schema": { "$ref": "#/backend/entities/Category" }, "description": "Master categories list." },
+    "/storeLists/{id}": { "schema": { "$ref": "#/backend/entities/StoreList" }, "description": "Standard store lists." },
+    "/boosters/{id}": { "schema": { "$ref": "#/backend/entities/Booster" }, "description": "Booster retailers." },
+    "/orders/{id}": { "schema": { "$ref": "#/backend/entities/Order" }, "description": "Customer orders." },
+    "/support/{id}": { "schema": { "$ref": "#/backend/entities/SupportRequest" }, "description": "Support tickets." },
+    "/customCategoryCodes/{id}": { "schema": { "$ref": "#/backend/entities/CustomCategoryCode" }, "description": "Custom code mappings." },
+    "/legacyCodes/{id}": { "schema": { "$ref": "#/backend/entities/LegacyCode" }, "description": "Unidentified legacy codes." },
+    "/authorizedUsers/{id}": { "schema": { "$ref": "#/backend/entities/AuthorizedUser" }, "description": "Authorized staff list." },
+    "/feedback/{id}": { "schema": { "$ref": "#/backend/entities/Feedback" }, "description": "User feedback." },
+    "/roles_admin/{uid}": { "schema": { "$ref": "#/backend/entities/AdminRole" }, "description": "Admin privileges marker." }
+  }
+}

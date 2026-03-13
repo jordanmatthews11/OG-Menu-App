@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Summary</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+            color: #333;
+            line-height: 1.6;
+            font-size: 14px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        .header img {
+            max-height: 50px;
+        }
+        .header-info {
+            text-align: right;
+        }
+        h1 {
+            font-size: 24px;
+            margin: 0;
+            color: #28155A;
+        }
+        .order-date {
+            font-size: 14px;
+            color: #555;
+        }
+        .category-card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+        .category-header {
+            background-color: #f7f7f9;
+            padding: 15px;
+            border-bottom: 1px solid #ddd;
+        }
+        h2 {
+            font-size: 18px;
+            margin: 0;
+            color: #28155A;
+        }
+        .country-badge {
+            background-color: #E8E5F1;
+            color: #28155A;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+            display: inline-block;
+            margin-left: 10px;
+        }
+        .category-body {
+            padding: 15px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .description-section, .collection-period-section {
+            grid-column: 1 / -1;
+        }
+        h3 {
+            font-size: 16px;
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: #333;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+        }
+        ul {
+            padding-left: 20px;
+            margin: 0;
+            list-style-type: disc;
+        }
+        li {
+            margin-bottom: 5px;
+        }
+        .no-items {
+            color: #777;
+            font-style: italic;
+        }
+        .totals-section {
+            background-color: #f7f7f9;
+            padding: 10px 15px;
+            border-top: 1px solid #ddd;
+            display: flex;
+            justify-content: space-around;
+            text-align: center;
+        }
+        .total-item {
+            font-weight: bold;
+        }
+        .total-item span {
+            display: block;
+            font-weight: normal;
+            font-size: 12px;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="{{ logoUrl }}" alt="Storesight Logo">
+            <div class="header-info">
+                <h1>Order Summary</h1>
+                <p class="order-date">Order Date: {{ orderDate }}</p>
+            </div>
+        </div>
+
+        {{#each cart}}
+        <div class="category-card">
+            <div class="category-header">
+                <h2>{{ categoryName }} <span class="country-badge">{{ categoryCountry }}</span></h2>
+            </div>
+            <div class="category-body">
+                <div class="description-section">
+                    <p style="font-size: 12px; color: #555;">{{ categoryDescription }}</p>
+                </div>
+                
+                {{#if collectionPeriod}}
+                <div class="collection-period-section">
+                    <h3>Collection Period</h3>
+                    <p>{{ collectionPeriod }}</p>
+                </div>
+                {{/if}}
+
+                <div>
+                    <h3>Standard Lists</h3>
+                    {{#if hasStoreLists}}
+                        <ul>
+                            {{#each storeLists}}
+                                <li>{{ this }}</li>
+                            {{/each}}
+                        </ul>
+                    {{else}}
+                        <p class="no-items">No standard lists selected.</p>
+                    {{/if}}
+                </div>
+                <div>
+                    <h3>Boosters</h3>
+                    {{#if hasBoosters}}
+                        <ul>
+                            {{#each boosters}}
+                                <li>{{ this }}</li>
+                            {{/each}}
+                        </ul>
+                    {{else}}
+                        <p class="no-items">No boosters selected.</p>
+                    {{/if}}
+                </div>
+            </div>
+            <div class="totals-section">
+                <div class="total-item">{{ totalWeekly }}<span>Total Weekly Stores</span></div>
+                <div class="total-item">{{ totalMonthly }}<span>Total Monthly Stores</span></div>
+            </div>
+        </div>
+        {{/each}}
+    </div>
+</body>
+</html>
