@@ -862,36 +862,18 @@ function EditDialog({
                 docRef = doc(firestore, dataType, entity.id);
             }
 
-            setDoc(docRef, dataToSave, { merge: true })
-                .then(async () => {
-                    if (dataType === 'categories') {
-                        await notifyCategoryUpdate(dataToSave as Category);
-                    }
-                    
-                    toast({
-                        title: isNew ? "Record Created" : "Record Updated",
-                        description: `The record has been successfully ${isNew ? 'created' : 'updated'}.`,
-                    });
-                    onSuccess(isNew);
-                    setIsOpen(false);
-                })
-                .catch(async (serverError) => {
-                    console.error('[Firestore save error]', serverError?.code, serverError?.message, serverError);
-                    if (serverError?.code === 'permission-denied') {
-                        const permissionError = new FirestorePermissionError({
-                            path: docRef.path,
-                            operation: isNew ? 'create' : 'update',
-                            requestResourceData: dataToSave,
-                        } satisfies SecurityRuleContext);
-                        errorEmitter.emit('permission-error', permissionError);
-                    } else {
-                        toast({
-                            variant: 'destructive',
-                            title: isNew ? 'Create Failed' : 'Update Failed',
-                            description: serverError?.message || 'An unexpected error occurred.',
-                        });
-                    }
-                });
+            await setDoc(docRef, dataToSave, { merge: true });
+
+            if (dataType === 'categories') {
+                await notifyCategoryUpdate(dataToSave as Category);
+            }
+            
+            toast({
+                title: isNew ? "Record Created" : "Record Updated",
+                description: `The record has been successfully ${isNew ? 'created' : 'updated'}.`,
+            });
+            onSuccess(isNew);
+            setIsOpen(false);
 
         } catch (error: any) {
             console.error("Save Error:", error);
@@ -1065,30 +1047,29 @@ function DataTable<T extends Entity>({ columns, data, isLoading, tableName, data
         if (!entity.id || !firestore) return;
         
         const docRef = doc(firestore, dataType, entity.id);
-        deleteDoc(docRef)
-            .then(() => {
-                toast({
-                    title: "Record Deleted",
-                    description: "The record has been successfully deleted.",
-                });
-                onDataChange();
-            })
-            .catch(async (serverError) => {
-                console.error('[Firestore delete error]', serverError?.code, serverError?.message, serverError);
-                if (serverError?.code === 'permission-denied') {
-                    const permissionError = new FirestorePermissionError({
-                        path: docRef.path,
-                        operation: 'delete',
-                    } satisfies SecurityRuleContext);
-                    errorEmitter.emit('permission-error', permissionError);
-                } else {
-                    toast({
-                        variant: 'destructive',
-                        title: 'Delete Failed',
-                        description: serverError?.message || 'An unexpected error occurred.',
-                    });
-                }
+        try {
+            await deleteDoc(docRef);
+            toast({
+                title: "Record Deleted",
+                description: "The record has been successfully deleted.",
             });
+            onDataChange();
+        } catch (serverError: any) {
+            console.error('[Firestore delete error]', serverError?.code, serverError?.message, serverError);
+            if (serverError?.code === 'permission-denied') {
+                const permissionError = new FirestorePermissionError({
+                    path: docRef.path,
+                    operation: 'delete',
+                } satisfies SecurityRuleContext);
+                errorEmitter.emit('permission-error', permissionError);
+            } else {
+                toast({
+                    variant: 'destructive',
+                    title: 'Delete Failed',
+                    description: serverError?.message || 'An unexpected error occurred.',
+                });
+            }
+        }
     };
 
 
