@@ -1037,6 +1037,10 @@ function EditDialog({
 function DataTable<T extends Entity>({ columns, data, isLoading, tableName, dataType, onDataChange, children }: { columns: (keyof T)[], data: T[] | null, isLoading: boolean, tableName: string, dataType: DataType, onDataChange: () => void, children?: React.ReactNode }) {
     const firestore = useFirestore();
     const { toast } = useToast();
+    const { data: allBoosters } = useCollection<Booster>(useMemoFirebase(
+        () => dataType === 'holdingCompanies' && firestore ? collection(firestore, 'boosters') : null,
+        [firestore, dataType]
+    ));
     const [filter, setFilter] = useState('');
     const [sortConfig, setSortConfig] = useState<SortConfig<T>>({ key: columns[0], direction: 'asc' });
     const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -1301,7 +1305,7 @@ function DataTable<T extends Entity>({ columns, data, isLoading, tableName, data
                                             }
                                             if (Array.isArray(val)) {
                                                 // For holdingCompanies.bannerIds, resolve booster IDs to names
-                                                if (dataType === 'holdingCompanies' && column === 'bannerIds') {
+                                                if (dataType === 'holdingCompanies' && col === 'bannerIds') {
                                                     const boostersForDisplay = (allBoosters || []).filter(b => val.includes(b.id));
                                                     if (boostersForDisplay.length === 0) {
                                                         return val.join(', ');
