@@ -354,9 +354,9 @@ export default function CategoriesPage() {
     const lowercasedSearch = boosterSearch.toLowerCase();
     
     // Get custom boosters for the current category
-    const customBoosters = activeConfig?.boosters
+    const customBoosters = (activeConfig?.boosters ?? [])
         .filter(b => b.booster.isCustom)
-        .map(b => b.booster) || [];
+        .map(b => b.booster);
     
     // Combine standard and custom boosters
     const allBoosters = [...boosterData, ...customBoosters];
