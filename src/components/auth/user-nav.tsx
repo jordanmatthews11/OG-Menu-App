@@ -6,20 +6,22 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { LogOut, User as UserIcon } from "lucide-react";
+import Link from "next/link";
 
-export function UserNav() {
+const LOOM_VIDEO_URL = "https://www.loom.com/share/97510bf52b04407e8b16c3376fb10f92?sid=97cb4f95-7c5a-444c-a8fb-c9e82a87b97f";
+
+export function UserNav({ variant = "dropdown" }: { variant?: "dropdown" | "header" }) {
   const { auth } = useAuth();
   const { user } = useUser();
 
   if (!user) {
-    return null; // Or a sign-in button if you prefer
+    return null;
   }
 
   const getInitials = (name: string | null | undefined) => {
@@ -29,6 +31,32 @@ export function UserNav() {
       ? `${firstName.charAt(0)}${lastName.charAt(0)}`
       : firstName.charAt(0);
   };
+
+  if (variant === "header") {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-medium text-white truncate max-w-[140px]">
+          {user.displayName || user.email || "User"}
+        </span>
+        <Button variant="outline" size="sm" className="border-white text-white hover:bg-white/10 hover:text-white" asChild>
+          <Link href={LOOM_VIDEO_URL} target="_blank" rel="noopener noreferrer">
+            How to Use
+          </Link>
+        </Button>
+        <Button variant="outline" size="sm" className="border-white text-white hover:bg-white/10 hover:text-white" asChild>
+          <Link href="/admin-console">Admin</Link>
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="border-white text-white hover:bg-white/10 hover:text-white"
+          onClick={() => handleSignOut(auth)}
+        >
+          Sign Out
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <DropdownMenu>

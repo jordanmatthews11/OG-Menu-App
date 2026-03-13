@@ -2,6 +2,7 @@
 import {
   Auth,
   signInAnonymously,
+  signOut,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInWithPopup,
@@ -33,4 +34,9 @@ export function initiateEmailSignIn(authInstance: Auth, email: string, password:
 export async function handleGoogleSignIn(authInstance: Auth) {
   const provider = new GoogleAuthProvider();
   await signInWithPopup(authInstance, provider);
+}
+
+/** Sign out. Returns a promise so the caller can await. */
+export async function handleSignOut(authInstance: Auth) {
+  await signOut(authInstance);
 }

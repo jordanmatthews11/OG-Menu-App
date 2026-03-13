@@ -226,7 +226,7 @@ export default function ListGeniePage() {
                 <Button asChild variant="outline" size="sm">
                     <Link href="/standard-lists">
                         <ArrowLeft className="mr-2 h-4 w-4" />
-                        Back to Standard Lists
+                        Back to Retailer/Channel Mix List
                     </Link>
                 </Button>
             </div>

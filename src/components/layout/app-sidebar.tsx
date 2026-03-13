@@ -3,7 +3,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Package2, List, MessageSquare, ExternalLink, Settings, SlidersHorizontal, PanelLeft, Video, ClipboardCheck, Wrench, FileClock, BookCopy, PanelRight, Tags, LayoutGrid, ShoppingCart, Archive, Download, Bug, Lightbulb } from 'lucide-react';
+import { MessageSquare, Settings, SlidersHorizontal, PanelLeft, Video, ClipboardCheck, Wrench, FileClock, BookCopy, PanelRight, Download, Archive } from 'lucide-react';
 import { FeedbackDialog } from '@/components/feedback-dialog';
 import { useMemo } from 'react';
 
@@ -42,12 +42,6 @@ export function AppSidebar() {
   }, [user, authorizedUsers]);
 
 
-  const primaryNavItems = [
-    { href: '/categories', icon: ShoppingCart, label: 'Categories', color: '#7554C2' },
-    { href: '/standard-lists', icon: List, label: 'Standard Lists', color: '#6E328C' },
-    { href: '/all-orders', icon: Archive, label: 'Review Submitted Orders', color: '#9C77EA' },
-  ];
-
   const csHelpfulLinks = [
       { href: 'https://app.hubspot.com/contacts/413765/objects/0-3/views/46386418/list', icon: FileClock, label: 'Contracts Ending EOM'},
       { href: 'https://app.hubspot.com/contacts/413765/objects/0-3/views/52145952/list', icon: FileClock, label: 'Active Contracts'},
@@ -64,39 +58,23 @@ export function AppSidebar() {
 
   return (
     <Sidebar>
-      <div className="flex-shrink-0 pt-4">
-          <SidebarMenu>
-            {primaryNavItems.map((item) => {
-                const isActive = pathname.startsWith(item.href);
-                return (
-                <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton
-                    asChild
-                    size={'sm'}
-                    variant="default"
-                    tooltip={item.label}
-                    className={cn(
-                        'bg-accent/10 dark:bg-accent/10 font-normal',
-                        'text-foreground dark:text-foreground',
-                        'hover:bg-accent/20 dark:hover:bg-accent/20',
-                        isActive && 'bg-accent/20 dark:bg-accent/20 border border-primary/50'
-                    )}
-                    isActive={isActive}
-                    >
-                    <Link href={item.href}>
-                        <item.icon style={{ color: item.color }} />
-                        <span>{item.label}</span>
-                    </Link>
-                    </SidebarMenuButton>
-                </SidebarMenuItem>
-                )
-            })}
-            </SidebarMenu>
-      </div>
       <SidebarContent>
         <ScrollArea className="h-full">
-            <div className="space-y-0 pt-2">
+            <div className="space-y-0 pt-4">
                 <SidebarGroup className="p-1.5 pb-0">
+                    <SidebarGroupLabel className="px-2">Quick access</SidebarGroupLabel>
+                    <SidebarMenu>
+                        <SidebarMenuItem>
+                            <SidebarMenuButton asChild size="sm" tooltip="Review Submitted Orders" className="justify-start" isActive={pathname.startsWith('/all-orders')}>
+                                <Link href="/all-orders">
+                                    <Archive className="h-4 w-4" />
+                                    <span className="whitespace-normal leading-normal">Review Submitted Orders</span>
+                                </Link>
+                            </SidebarMenuButton>
+                        </SidebarMenuItem>
+                    </SidebarMenu>
+                </SidebarGroup>
+                <SidebarGroup className="p-1.5 pt-0">
                     <SidebarGroupLabel className="px-2">CS Helpful Links</SidebarGroupLabel>
                     <SidebarMenu>
                         {csHelpfulLinks.map((item) => (
@@ -111,7 +89,7 @@ export function AppSidebar() {
                         ))}
                     </SidebarMenu>
                 </SidebarGroup>
-                <SidebarGroup className="p-1.5 pt-0">
+                <SidebarGroup className="p-1.5">
                     <SidebarGroupLabel className="px-2">Ops Resources</SidebarGroupLabel>
                      <SidebarMenu>
                         {opsResourcesLinks.map((item) => (

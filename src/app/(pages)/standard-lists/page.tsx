@@ -247,7 +247,7 @@ export default function StandardListsPage() {
     <div className="container mx-auto max-w-full">
       <div className="flex justify-between items-start mb-6">
           <div>
-            <h1 className="text-xl font-bold tracking-tight">Standard Store Lists</h1>
+            <h1 className="text-xl font-bold tracking-tight">Retailer/Channel Mix List</h1>
             <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
               Search for the best list for your customer. Select a list below to generate a copy- and print-friendly view, or download a PDF version.
             </p>
@@ -409,7 +409,7 @@ export default function StandardListsPage() {
           </Card>
         )}) : (
              <Card className="text-muted-foreground text-center col-span-full p-12">
-                <p>No standard lists found for the selected criteria.</p>
+                <p>No retailer/channel mix lists found for the selected criteria.</p>
             </Card>
         )}
       </div>

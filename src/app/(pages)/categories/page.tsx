@@ -202,8 +202,8 @@ export default function CategoriesPage() {
   // State for multi-category selection - now stores individual Category objects
   const [selectedCategories, setSelectedCategories] = useState<Category[]>([]);
   
-  // State for the configuration dialog
-  const [isConfiguring, setIsConfiguring] = useState(false);
+  // Wizard step: 1 = Select Categories, 2 = Configure Retailers, 3 = Review & Submit
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   // Holds the temporary configurations for all categories being edited
   const [tempConfigs, setTempConfigs] = useState<TempConfiguration[]>([]);
   // The category currently being focused on within the dialog's accordion
@@ -212,7 +212,6 @@ export default function CategoriesPage() {
   const [boosterSearch, setBoosterSearch] = useState('');
   const [customBoosterName, setCustomBoosterName] = useState('');
   
-  const [isSubmitDialogOpen, setIsSubmitDialogOpen] = useState(false);
   const [submitterName, setSubmitterName] = useState('');
   const [submitterEmail, setSubmitterEmail] = useState('');
   const [customerName, setCustomerName] = useState('');
@@ -243,11 +242,11 @@ export default function CategoriesPage() {
   const [isStoreListSectionOpen, setIsStoreListSectionOpen] = useState(true);
 
   useEffect(() => {
-    if (user && (isSubmitDialogOpen || isConfiguring)) {
+    if (user && (currentStep === 2 || currentStep === 3)) {
         setSubmitterName(user.displayName || '');
         setSubmitterEmail(user.email || '');
     }
-  }, [user, isSubmitDialogOpen, isConfiguring]);
+  }, [user, currentStep]);
 
 
   useEffect(() => {
@@ -420,7 +419,7 @@ export default function CategoriesPage() {
     setTempConfigs(newConfigs);
     setActiveConfigCategory(newConfigs[0]?.category || null);
     setOpenCollapsibleId(newConfigs[0]?.category.id || null); // Set the first one to be open
-    setIsConfiguring(true);
+    setCurrentStep(2);
 }, [tempConfigs]);
 
 
@@ -767,8 +766,7 @@ const handleApplyToAll = (sourceConfig: TempConfiguration) => {
             setCustomerName('');
             setHubspotDealId('');
             setTypeOfCollection('');
-            setIsSubmitDialogOpen(false);
-            setIsConfiguring(false);
+            setCurrentStep(1);
             setIsSubmitting(false);
         })
         .catch(async (serverError) => {
@@ -891,16 +889,31 @@ const handleApplyToAll = (sourceConfig: TempConfiguration) => {
 
   return (
     <TooltipProvider>
-      <div className="space-y-8">
+      <div className="space-y-6">
+        {/* Step indicator */}
+        <div className="flex items-center justify-center gap-2 py-2">
+          {([{ step: 1, label: 'Select Categories' }, { step: 2, label: 'Configure Retailers' }, { step: 3, label: 'Review & Submit' }] as const).map(({ step, label }, i) => (
+            <div key={step} className="flex items-center">
+              <div className={cn(
+                'flex items-center gap-2',
+                currentStep === step ? 'text-foreground font-medium' : 'text-muted-foreground'
+              )}>
+                <span className={cn(
+                  'flex h-8 w-8 items-center justify-center rounded-full border-2 text-sm',
+                  currentStep === step ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/50'
+                )}>{step}</span>
+                <span className="text-sm">{label}</span>
+              </div>
+              {i < 2 && <div className="mx-2 h-px w-8 bg-muted-foreground/30" aria-hidden />}
+            </div>
+          ))}
+        </div>
+
+        {currentStep === 1 && (
         <div>
-            <div className="flex justify-between items-center mb-4">
-                <h2 className="text-lg font-semibold">Select & Configure Categories with Retailer Lists</h2>
-                {selectedCategories.length > 0 && (
-                    <Button onClick={() => handleOpenConfigureDialog(selectedCategories)}>
-                        <Settings className="mr-2 h-4 w-4" />
-                        Configure Selected ({selectedCategories.length})
-                    </Button>
-                )}
+            <div className="mb-4">
+                <h2 className="text-lg font-semibold">Step 1: Select Categories</h2>
+                <p className="text-sm text-muted-foreground">Choose one or more retail categories for data syndication</p>
             </div>
 
             {selectedCategories.length > 0 && (
@@ -943,7 +956,7 @@ const handleApplyToAll = (sourceConfig: TempConfiguration) => {
                     <div className="relative flex-1">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input 
-                            placeholder="Search categories, departments, brands..."
+                            placeholder="Search categories by name, department, brands, or countries..."
                             value={categorySearch}
                             onChange={(e) => setCategorySearch(e.target.value)}
                             className="pl-10 text-xs"
@@ -1009,6 +1022,18 @@ const handleApplyToAll = (sourceConfig: TempConfiguration) => {
                         </ScrollArea>
                     </DialogContent>
                 </Dialog>
+            </div>
+            <div className="flex justify-between items-center mb-3">
+                <p className="text-sm text-muted-foreground">
+                    {selectedCategories.length === 0 ? 'No categories selected' : `${selectedCategories.length} ${selectedCategories.length === 1 ? 'category' : 'categories'} selected`}
+                </p>
+                <Button
+                    onClick={() => selectedCategories.length > 0 && handleOpenConfigureDialog(selectedCategories)}
+                    disabled={selectedCategories.length === 0}
+                    className="bg-[#4A2D8A] hover:bg-[#3d2570]"
+                >
+                    Next: Configure Retailers
+                </Button>
             </div>
             <Card>
                 <ScrollArea className="h-[75vh]">
@@ -1156,56 +1181,22 @@ const handleApplyToAll = (sourceConfig: TempConfiguration) => {
                 </ScrollArea>
             </Card>
         </div>
+        )}
 
-        <AlertDialog open={countrySelectionDialog.isOpen} onOpenChange={(open) => {if (!open) setCountrySelectionDialog({ isOpen: false, group: null, selectedCountries: {} });}}>
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Select Countries for &quot;{countrySelectionDialog.group?.name}&quot;</AlertDialogTitle>
-                    <AlertDialogDescription>This category is available in multiple countries. Please select which ones you want to configure.</AlertDialogDescription>
-                </AlertDialogHeader>
-                <div className="py-4 space-y-2">
-                    {countrySelectionDialog.group?.sourceCategories.map(sc => (
-                        <div key={sc.id} className="flex items-center space-x-2">
-                             <Checkbox
-                                id={`country-check-${sc.id}`}
-                                checked={!!countrySelectionDialog.selectedCountries[sc.country]}
-                                onCheckedChange={checked => {
-                                    setCountrySelectionDialog(prev => ({
-                                        ...prev,
-                                        selectedCountries: {
-                                            ...prev.selectedCountries,
-                                            [sc.country]: !!checked,
-                                        }
-                                    }))
-                                }}
-                            />
-                            <label htmlFor={`country-check-${sc.id}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                                {sc.country}
-                            </label>
-                        </div>
-                    ))}
-                </div>
-                <AlertDialogFooter>
-                    <AlertDialogCancel onClick={() => setCountrySelectionDialog({ isOpen: false, group: null, selectedCountries: {} })}>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleCountrySelectionConfirm}>Confirm</AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
-
-
-      <Dialog open={isConfiguring} onOpenChange={(open) => { if (!open) setIsConfiguring(false)}}>
-        <DialogContent className="max-w-7xl h-[90vh] flex flex-col p-0">
-            <DialogHeader className="p-4 pb-2 border-b flex-row items-center justify-between">
+        {currentStep === 2 && (
+        <div className="space-y-4">
+            <div className="flex justify-between items-center">
                 <div>
-                    <DialogTitle className="text-sm">Configure Selections ({tempConfigs.length} categories)</DialogTitle>
-                    <DialogDescription className="text-xs">
-                        Configure store lists and boosters for each selected category. Use the "Apply to All" button to quickly copy a configuration.
-                    </DialogDescription>
+                    <h2 className="text-lg font-semibold">Step 2: Configure Retailers</h2>
+                    <p className="text-sm text-muted-foreground">Configure store lists and boosters for each selected category. Use &quot;Apply to All&quot; to copy a configuration.</p>
                 </div>
-            </DialogHeader>
-            <div className="flex-grow min-h-0 flex gap-4 p-4 overflow-y-auto">
-                {/* Left side: Selections */}
-                 <div className="w-1/2 flex flex-col gap-4">
+                <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => setCurrentStep(1)}>Back</Button>
+                    <Button className="bg-[#4A2D8A] hover:bg-[#3d2570]" onClick={() => setCurrentStep(3)}>Next: Review & Submit</Button>
+                </div>
+            </div>
+            <div className="flex-grow min-h-0 flex gap-4 overflow-y-auto">
+                <div className="w-1/2 flex flex-col gap-4">
                     <Card className="flex-grow flex flex-col">
                         <CardHeader className="p-2">
                             <CardTitle className="text-xs">Selected Categories</CardTitle>
@@ -1484,7 +1475,6 @@ const handleApplyToAll = (sourceConfig: TempConfiguration) => {
                     </Card>
                 </div>
 
-                {/* Right side: Summary */}
                 <div className="w-1/2 flex flex-col gap-4">
                     <div className='space-y-2 flex-grow flex flex-col min-h-0'>
                         <h4 className="font-semibold text-sm">Selection Summary</h4>
@@ -1497,7 +1487,6 @@ const handleApplyToAll = (sourceConfig: TempConfiguration) => {
                                     ].sort((a,b) => a.name.localeCompare(b.name));
                                     const uniqueStoreListCount = new Set(config.storeLists.map(sl => sl.name)).size;
                                     const isConfigIncomplete = (uniqueStoreListCount === 0 && !config.proceedWithoutStandardList) || !config.startDate || !config.endDate;
-
 
                                     return (
                                         <Card key={config.category.id} className="overflow-hidden">
@@ -1560,30 +1549,112 @@ const handleApplyToAll = (sourceConfig: TempConfiguration) => {
                     </div>
                 </div>
               </div>
-            <DialogFooter className='border-t p-4 bg-background flex flex-col sm:flex-row items-center justify-center gap-2'>
-                {unconfiguredCount > 0 && (
-                    <Alert variant="destructive" className="w-auto max-w-md text-center p-2 mb-2 sm:mb-0">
-                        <AlertTriangle className="h-4 w-4" />
-                        <AlertDescription className="text-sm">
-                            You have {unconfiguredCount} {unconfiguredCount === 1 ? 'category' : 'categories'} that require a list selection and/or a collection period.
-                        </AlertDescription>
-                    </Alert>
-                )}
-                <div className="flex gap-2 justify-center w-full flex-wrap sm:flex-nowrap">
-                    <Button onClick={handleExportToXlsx} variant="outline" size="sm" className="flex-1">
-                        <FileSpreadsheet /> Export XLSX
-                    </Button>
-                    <Button onClick={() => setIsCopyEmailDialogOpen(true)} variant="outline" size="sm" className="flex-1">
-                        <Copy /> Copy for Email
-                    </Button>
-                    <Button onClick={() => setIsSubmitDialogOpen(true)} size="sm" variant="outline" className="flex-1">
-                        Submit Order to Ops Team
-                    </Button>
+            </div>
+        )}
+
+        {currentStep === 3 && (
+        <div className="space-y-6">
+            <div className="flex justify-between items-center">
+                <h2 className="text-lg font-semibold">Step 3: Review & Submit</h2>
+                <Button variant="outline" onClick={() => setCurrentStep(2)}>Back</Button>
+            </div>
+            {unconfiguredCount > 0 && (
+                <Alert variant="destructive" className="w-auto max-w-md">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertDescription className="text-sm">
+                        You have {unconfiguredCount} {unconfiguredCount === 1 ? 'category' : 'categories'} that require a list selection and/or a collection period.
+                    </AlertDescription>
+                </Alert>
+            )}
+            <div className="flex gap-2 flex-wrap">
+                <Button onClick={handleExportToXlsx} variant="outline" size="sm">
+                    <FileSpreadsheet className="mr-2 h-4 w-4" /> Export XLSX
+                </Button>
+                <Button onClick={() => setIsCopyEmailDialogOpen(true)} variant="outline" size="sm">
+                    <Copy className="mr-2 h-4 w-4" /> Copy for Email
+                </Button>
+                <Button onClick={handleSubmitOrder} size="sm" className="bg-[#4A2D8A] hover:bg-[#3d2570]" disabled={isSubmitting || !customerName || !hubspotDealId || !typeOfCollection}>
+                    {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Confirm & Submit
+                </Button>
+            </div>
+            <Card>
+                <CardHeader>
+                    <CardTitle>Order details</CardTitle>
+                    <CardDescription>Please confirm the details before submitting.</CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-4">
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="customer-name-s3" className="text-right">Customer</Label>
+                        <Input id="customer-name-s3" value={customerName} onChange={(e) => setCustomerName(e.target.value)} className="col-span-3" placeholder="Customer or Prospect Name" />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="hubspot-deal-id-s3" className="text-right">Hubspot Deal ID</Label>
+                        <Input id="hubspot-deal-id-s3" value={hubspotDealId} onChange={(e) => setHubspotDealId(e.target.value)} className="col-span-3" placeholder="Required" />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="type-of-collection-s3" className="text-right">Collection Type</Label>
+                        <Select onValueChange={(value) => setTypeOfCollection(value as Order['typeOfCollection'])} value={typeOfCollection}>
+                            <SelectTrigger id="type-of-collection-s3" className="col-span-3">
+                                <SelectValue placeholder="Select a type..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {collectionTypes.map(type => (
+                                    <SelectItem key={type} value={type}>{type}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <Separator />
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="submitter-name-s3" className="text-right">Your Name</Label>
+                        <Input id="submitter-name-s3" value={submitterName} onChange={(e) => setSubmitterName(e.target.value)} className="col-span-3" />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="submitter-email-s3" className="text-right">Your Email</Label>
+                        <Input id="submitter-email-s3" type="email" value={submitterEmail} onChange={(e) => setSubmitterEmail(e.target.value)} className="col-span-3" />
+                    </div>
+                </CardContent>
+            </Card>
+        </div>
+        )}
+
+        <AlertDialog open={countrySelectionDialog.isOpen} onOpenChange={(open) => {if (!open) setCountrySelectionDialog({ isOpen: false, group: null, selectedCountries: {} });}}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Select Countries for &quot;{countrySelectionDialog.group?.name}&quot;</AlertDialogTitle>
+                    <AlertDialogDescription>This category is available in multiple countries. Please select which ones you want to configure.</AlertDialogDescription>
+                </AlertDialogHeader>
+                <div className="py-4 space-y-2">
+                    {countrySelectionDialog.group?.sourceCategories.map(sc => (
+                        <div key={sc.id} className="flex items-center space-x-2">
+                             <Checkbox
+                                id={`country-check-${sc.id}`}
+                                checked={!!countrySelectionDialog.selectedCountries[sc.country]}
+                                onCheckedChange={checked => {
+                                    setCountrySelectionDialog(prev => ({
+                                        ...prev,
+                                        selectedCountries: {
+                                            ...prev.selectedCountries,
+                                            [sc.country]: !!checked,
+                                        }
+                                    }))
+                                }}
+                            />
+                            <label htmlFor={`country-check-${sc.id}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                                {sc.country}
+                            </label>
+                        </div>
+                    ))}
                 </div>
-            </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => setCountrySelectionDialog({ isOpen: false, group: null, selectedCountries: {} })}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleCountrySelectionConfirm}>Confirm</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+
+
       <AlertDialog open={isNoListConfirmOpen} onOpenChange={setIsNoListConfirmOpen}>
         <AlertDialogContent>
             <AlertDialogHeader>
@@ -1600,53 +1671,6 @@ const handleApplyToAll = (sourceConfig: TempConfiguration) => {
             </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      <Dialog open={isSubmitDialogOpen} onOpenChange={setIsSubmitDialogOpen}>
-        <DialogContent>
-            <DialogHeader>
-                <DialogTitle>Submit Order to Ops Team</DialogTitle>
-                <DialogDescription>Please confirm the details before submitting.</DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-                <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="customer-name" className="text-right">Customer</Label>
-                    <Input id="customer-name" value={customerName} onChange={(e) => setCustomerName(value => e.target.value)} className="col-span-3" placeholder="Customer or Prospect Name" />
-                </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="hubspot-deal-id" className="text-right">Hubspot Deal ID</Label>
-                    <Input id="hubspot-deal-id" value={hubspotDealId} onChange={(e) => setHubspotDealId(value => e.target.value)} className="col-span-3" placeholder="Required" />
-                </div>
-                 <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="type-of-collection" className="text-right">Collection Type</Label>
-                    <Select onValueChange={(value) => setTypeOfCollection(value as Order['typeOfCollection'])} value={typeOfCollection}>
-                        <SelectTrigger id="type-of-collection" className="col-span-3">
-                            <SelectValue placeholder="Select a type..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {collectionTypes.map(type => (
-                                <SelectItem key={type} value={type}>{type}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-                 <Separator />
-                <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="submitter-name" className="text-right">Your Name</Label>
-                    <Input value={submitterName} onChange={(e) => setSubmitterName(value => e.target.value)} className="col-span-3" />
-                </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="submitter-email" className="text-right">Your Email</Label>
-                    <Input type="email" value={submitterEmail} onChange={(e) => setSubmitterEmail(value => e.target.value)} className="col-span-3" />
-                </div>
-            </div>
-            <DialogFooter>
-                <Button variant="outline" onClick={() => setIsSubmitDialogOpen(false)}>Cancel</Button>
-                <Button onClick={handleSubmitOrder} disabled={isSubmitting || !customerName || !hubspotDealId || !typeOfCollection}>
-                    {isSubmitting ? <Loader2 className="animate-spin" /> : 'Confirm & Submit'}
-                </Button>
-            </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
        <Dialog open={isCopyEmailDialogOpen} onOpenChange={setIsCopyEmailDialogOpen}>
         <DialogContent className="max-w-4xl h-[80vh]">
