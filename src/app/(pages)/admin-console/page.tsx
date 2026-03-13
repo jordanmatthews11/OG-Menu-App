@@ -1347,14 +1347,14 @@ export default function AdminConsolePage() {
     setVersion(v => v + 1);
   }, []);
   
-  const { data: categories, isLoading: isLoadingCategories, refetch: refetchCategories } = useCollection<Category>(useMemoFirebase(() => firestore ? collection(firestore, 'categories') : null, [firestore, version]));
-  const { data: storeLists, isLoading: isLoadingStoreLists, refetch: refetchStoreLists } = useCollection<StoreList>(useMemoFirebase(() => firestore ? collection(firestore, 'storeLists') : null, [firestore, version]));
-  const { data: boosters, isLoading: isLoadingBoosters, refetch: refetchBoosters } = useCollection<Booster>(useMemoFirebase(() => firestore ? collection(firestore, 'boosters') : null, [firestore, version]));
-  const { data: customCategoryCodes, isLoading: isLoadingCustomCategoryCodes, refetch: refetchCustomCategoryCodes } = useCollection<CustomCategoryCode>(useMemoFirebase(() => firestore ? collection(firestore, 'customCategoryCodes') : null, [firestore, version]));
-  const { data: authorizedUsers, isLoading: isLoadingAuthorizedUsers, refetch: refetchAuthorizedUsers } = useCollection<AuthorizedUser>(useMemoFirebase(() => firestore ? collection(firestore, 'authorizedUsers') : null, [firestore, version]));
-  const { data: feedback, isLoading: isLoadingFeedback, refetch: refetchFeedback } = useCollection<Feedback>(useMemoFirebase(() => firestore ? collection(firestore, 'feedback') : null, [firestore, version]));
-  const { data: legacyCodes, isLoading: isLoadingLegacyCodes, refetch: refetchLegacyCodes } = useCollection<LegacyCode>(useMemoFirebase(() => firestore ? collection(firestore, 'legacyCodes') : null, [firestore, version]));
-  const { data: holdingCompanies, isLoading: isLoadingHoldingCompanies, refetch: refetchHoldingCompanies } = useCollection<HoldingCompany>(useMemoFirebase(() => firestore ? collection(firestore, 'holdingCompanies') : null, [firestore, version]));
+  const { data: categories, isLoading: isLoadingCategories } = useCollection<Category>(useMemoFirebase(() => firestore ? collection(firestore, 'categories') : null, [firestore, version]));
+  const { data: storeLists, isLoading: isLoadingStoreLists } = useCollection<StoreList>(useMemoFirebase(() => firestore ? collection(firestore, 'storeLists') : null, [firestore, version]));
+  const { data: boosters, isLoading: isLoadingBoosters } = useCollection<Booster>(useMemoFirebase(() => firestore ? collection(firestore, 'boosters') : null, [firestore, version]));
+  const { data: customCategoryCodes, isLoading: isLoadingCustomCategoryCodes } = useCollection<CustomCategoryCode>(useMemoFirebase(() => firestore ? collection(firestore, 'customCategoryCodes') : null, [firestore, version]));
+  const { data: authorizedUsers, isLoading: isLoadingAuthorizedUsers } = useCollection<AuthorizedUser>(useMemoFirebase(() => firestore ? collection(firestore, 'authorizedUsers') : null, [firestore, version]));
+  const { data: feedback, isLoading: isLoadingFeedback } = useCollection<Feedback>(useMemoFirebase(() => firestore ? collection(firestore, 'feedback') : null, [firestore, version]));
+  const { data: legacyCodes, isLoading: isLoadingLegacyCodes } = useCollection<LegacyCode>(useMemoFirebase(() => firestore ? collection(firestore, 'legacyCodes') : null, [firestore, version]));
+  const { data: holdingCompanies, isLoading: isLoadingHoldingCompanies } = useCollection<HoldingCompany>(useMemoFirebase(() => firestore ? collection(firestore, 'holdingCompanies') : null, [firestore, version]));
 
   const isUserAuthorized = useMemo(() => {
     if (!user || !authorizedUsers) return false;
@@ -1362,15 +1362,8 @@ export default function AdminConsolePage() {
   }, [user, authorizedUsers]);
 
   const handleCompositeDataChange = useCallback(() => {
-    refetchCategories();
-    refetchStoreLists();
-    refetchBoosters();
-    refetchHoldingCompanies();
-    refetchCustomCategoryCodes();
-    refetchAuthorizedUsers();
-    refetchFeedback();
-    refetchLegacyCodes();
-  }, [refetchCategories, refetchStoreLists, refetchBoosters, refetchHoldingCompanies, refetchCustomCategoryCodes, refetchAuthorizedUsers, refetchFeedback, refetchLegacyCodes]);
+    setVersion(v => v + 1);
+  }, []);
 
   const isLoading = isLoadingCategories || isLoadingStoreLists || isLoadingBoosters || isLoadingHoldingCompanies || isLoadingCustomCategoryCodes || isLoadingAuthorizedUsers || isLoadingFeedback || isLoadingLegacyCodes;
 
