@@ -381,11 +381,11 @@ export default function StandardListsPage() {
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="h-7 text-[10px] px-2 shrink-0"
+                            className="h-7 text-[10px] px-2.5 shrink-0 border-2 border-yellow-400 bg-amber-50 text-amber-950 shadow-sm hover:bg-amber-100 hover:border-yellow-500 focus-visible:ring-2 focus-visible:ring-yellow-400"
                             onClick={() => handleCopyForContract(retailers)}
                         >
-                            <Clipboard className="h-3.5 w-3.5 mr-1" />
-                            Copy for contract
+                            <Clipboard className="h-3.5 w-3.5 mr-1 text-amber-800" />
+                            Copy for contracts
                         </Button>
                     </div>
                     <div className="border rounded-md">
