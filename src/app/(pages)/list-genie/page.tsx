@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -44,8 +44,10 @@ const retailerSynonyms: Record<string, string> = {
 };
 
 const normalizeRetailerName = (name: string): string => {
-    const lowerName = name.toLowerCase().trim();
-    // This allows for reverse matching, e.g. "cvs pharmacy" becomes "cvs pharmacy" but so does "cvs"
+    let lowerName = name.toLowerCase().trim();
+    // Strip common suffixes like "(all banners)" before matching
+    lowerName = lowerName.replace(/\s*\(all banners\)\s*$/i, '').trim();
+
     for (const key in retailerSynonyms) {
         if (lowerName === key || lowerName === retailerSynonyms[key]) {
             return retailerSynonyms[key];
@@ -76,6 +78,9 @@ export default function ListGeniePage() {
     
     const draggedItem = useRef<RankedRetailer | null>(null);
     const dragOverItem = useRef<RankedRetailer | null>(null);
+
+    const storeListsRef = useRef(storeLists);
+    useEffect(() => { storeListsRef.current = storeLists; }, [storeLists]);
 
 
     const availableCountries = useMemo(() => {
@@ -144,14 +149,17 @@ export default function ListGeniePage() {
         setShowAllRecommendations(false);
 
         setTimeout(() => {
-            if (!storeLists) {
-                toast({ variant: 'destructive', title: 'Error', description: 'Standard lists are not available to compare against.' });
+            const currentStoreLists = storeListsRef.current;
+
+            if (!currentStoreLists || currentStoreLists.length === 0) {
+                toast({ variant: 'destructive', title: 'No Store Lists Available', description: 'There are no Retailer/Channel Mix lists to compare against. Add lists in the Admin Console first.' });
                 setIsGenerating(false);
                 return;
             }
 
-            const groupedStandardLists = storeLists.reduce<Record<string, { retailers: Set<string>, fullList: StoreList[] }>>((acc, sl) => {
-                if (sl.country !== selectedCountry) return acc;
+            const normalizedCountry = selectedCountry.toLowerCase().trim();
+            const groupedStandardLists = currentStoreLists.reduce<Record<string, { retailers: Set<string>, fullList: StoreList[] }>>((acc, sl) => {
+                if (sl.country.toLowerCase().trim() !== normalizedCountry) return acc;
                 const key = sl.name;
                 if (!acc[key]) {
                     acc[key] = { retailers: new Set(), fullList: [] };
@@ -161,22 +169,41 @@ export default function ListGeniePage() {
                 return acc;
             }, {});
 
+            const listCount = Object.keys(groupedStandardLists).length;
+
+            if (listCount === 0) {
+                const uniqueStoreListCountries = [...new Set(currentStoreLists.map(sl => sl.country))];
+                toast({
+                    variant: 'destructive',
+                    title: 'No Lists for This Country',
+                    description: `No Retailer/Channel Mix lists found for "${selectedCountry}". Available countries in store lists: ${uniqueStoreListCountries.join(', ') || 'none'}.`,
+                });
+                setRecommendations([]);
+                setIsGenerating(false);
+                return;
+            }
+
             const preferredRetailerNames = new Set(preferredList.map(r => normalizeRetailerName(r.name)));
+
+            const totalRanks = preferredList.length;
+            const maxWeightedScore = preferredList.reduce((sum, r) => sum + (totalRanks + 1 - r.rank), 0);
 
             const allRecommendations: Recommendation[] = Object.entries(groupedStandardLists).map(([listName, { retailers: standardListRetailers, fullList }]) => {
                 const matchedRetailers: Booster[] = [];
                 const unmatchedRetailers: Booster[] = [];
+                let weightedScore = 0;
 
                 preferredList.forEach(preferredRetailer => {
                     if (standardListRetailers.has(normalizeRetailerName(preferredRetailer.name))) {
                         matchedRetailers.push(preferredRetailer);
+                        weightedScore += (totalRanks + 1 - preferredRetailer.rank);
                     } else {
                         unmatchedRetailers.push(preferredRetailer);
                     }
                 });
 
-                const matchPercentage = preferredRetailerNames.size > 0
-                    ? Math.round((matchedRetailers.length / preferredRetailerNames.size) * 100)
+                const matchPercentage = maxWeightedScore > 0
+                    ? Math.round((weightedScore / maxWeightedScore) * 100)
                     : 0;
                 
                 return {
@@ -194,7 +221,12 @@ export default function ListGeniePage() {
             
             setRecommendations(sortedRecs);
             setIsGenerating(false);
-            toast({ title: 'Recommendations Generated!', description: 'The List Genie has found the best matching lists for you.' });
+
+            if (sortedRecs.length > 0 && sortedRecs[0].matchPercentage > 0) {
+                toast({ title: 'Recommendations Generated!', description: `Found ${sortedRecs.length} list(s). Best match: ${sortedRecs[0].matchPercentage}%.` });
+            } else if (sortedRecs.length > 0) {
+                toast({ title: 'Recommendations Generated', description: `Found ${sortedRecs.length} list(s), but none share retailers with your preferred list. Check that retailer names match between boosters and store lists.` });
+            }
         }, 1500);
     };
     
@@ -338,9 +370,9 @@ export default function ListGeniePage() {
                     </div>
                 </CardContent>
                 <CardFooter className={cn(!selectedCountry && "opacity-50 pointer-events-none")}>
-                     <Button size="lg" onClick={handleAskGenie} disabled={isGenerating || preferredList.length === 0}>
+                     <Button size="lg" onClick={handleAskGenie} disabled={isGenerating || preferredList.length === 0 || isLoading}>
                         {isGenerating ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Wand2 className="mr-2 h-5 w-5" />}
-                        {isGenerating ? 'Analyzing...' : 'Ask the Genie'}
+                        {isGenerating ? 'Analyzing...' : isLoading ? 'Loading data...' : 'Ask the Genie'}
                     </Button>
                 </CardFooter>
             </Card>
@@ -358,7 +390,13 @@ export default function ListGeniePage() {
                                 <p className="text-xs">Finding the best matches...</p>
                             </div>
                         )}
-                        {!isGenerating && recommendations && (
+                        {!isGenerating && recommendations && recommendations.length === 0 && (
+                            <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
+                                <p className="text-sm font-medium">No matching lists found.</p>
+                                <p className="text-xs mt-1">None of the store lists for {selectedCountry} share retailers with your preferred list. Check that your boosters and store list retailers use consistent names.</p>
+                            </div>
+                        )}
+                        {!isGenerating && recommendations && recommendations.length > 0 && (
                              <TooltipProvider>
                              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
                                 {visibleRecommendations.map(rec => {

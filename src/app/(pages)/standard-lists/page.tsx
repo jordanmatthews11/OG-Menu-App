@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import type { StoreList } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Download, FileSpreadsheet, Copy, Search, X, Check, ChevronsUpDown, Info, Wand2, EyeOff } from "lucide-react";
+import { Loader2, Download, FileSpreadsheet, Copy, Search, X, Check, Clipboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
@@ -49,7 +49,6 @@ export default function StandardListsPage() {
   const [searchRetailers, setSearchRetailers] = useState<string[]>([]);
   const [searchListName, setSearchListName] = useState<string>("");
   const [selectedLists, setSelectedLists] = useState<StoreList[]>([]);
-  const [hideWeekly, setHideWeekly] = useState(false);
 
   const [isCopyDialogOpen, setIsCopyDialogOpen] = useState(false);
 
@@ -211,16 +210,12 @@ export default function StandardListsPage() {
       
       const sheetData = sortedRetailers.map(r => ({
         Retailer: r.retailer,
-        'Weekly Quota': r.weeklyQuota,
         'Monthly Quota': r.monthlyQuota,
       }));
 
-      // Add total row
-      const totalWeekly = retailers.reduce((sum, r) => sum + r.weeklyQuota, 0);
       const totalMonthly = retailers.reduce((sum, r) => sum + r.monthlyQuota, 0);
       sheetData.push({
         Retailer: 'Total',
-        'Weekly Quota': totalWeekly,
         'Monthly Quota': totalMonthly,
       });
 
@@ -231,7 +226,21 @@ export default function StandardListsPage() {
 
     XLSX.writeFile(wb, "standard-lists-export.xlsx");
   };
-  
+
+  const handleCopyForContract = async (retailers: StoreList[]) => {
+    const sorted = [...retailers].sort((a, b) => a.retailer.localeCompare(b.retailer));
+    const text = sorted.map((r) => `${r.retailer} (${r.monthlyQuota})`).join(', ');
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({ title: 'Copied to clipboard!' });
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'Copy failed',
+        description: 'Could not copy to clipboard.',
+      });
+    }
+  };
 
   if (isLoading) {
     return (
@@ -307,10 +316,6 @@ export default function StandardListsPage() {
                         setSelectedRetailers={setSearchRetailers}
                     />
                 </div>
-                 <Button variant="outline" size="sm" onClick={() => setHideWeekly(prev => !prev)} className="h-9 text-[10px]">
-                    <EyeOff className="mr-2 h-4 w-4" />
-                    {hideWeekly ? 'Show Weekly Quotas' : 'Hide Weekly Quotas'}
-                </Button>
             </div>
             
             <div className="flex items-center gap-2">
@@ -354,7 +359,6 @@ export default function StandardListsPage() {
                     return null;
                 }
 
-                const totalWeekly = retailers.reduce((sum, r) => sum + r.weeklyQuota, 0);
                 const totalMonthly = retailers.reduce((sum, r) => sum + r.monthlyQuota, 0);
 
                 const isCountryGroupSelected = retailers.every(r => selectedLists.some(sl => sl.id === r.id));
@@ -362,7 +366,8 @@ export default function StandardListsPage() {
 
                 return (
                     <div key={country}>
-                    <div className="flex items-center gap-2 mb-1">
+                    <div className="flex flex-wrap items-center gap-2 mb-1 justify-between">
+                        <div className="flex items-center gap-2 min-w-0">
                         <Checkbox 
                             id={`${listName}-${country}`}
                             checked={isCountryGroupSelected}
@@ -371,13 +376,23 @@ export default function StandardListsPage() {
                         />
                         <label htmlFor={`${listName}-${country}`} className="font-semibold text-xs cursor-pointer">{country}</label>
                         <Badge variant="secondary" className="text-[10px]">{retailers.length} Retailers</Badge>
+                        </div>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-[10px] px-2 shrink-0"
+                            onClick={() => handleCopyForContract(retailers)}
+                        >
+                            <Clipboard className="h-3.5 w-3.5 mr-1" />
+                            Copy for contract
+                        </Button>
                     </div>
                     <div className="border rounded-md">
                         <Table>
                             <TableHeader>
                                 <TableRow>
                                     <TableHead className="h-8 px-2 text-[10px]">Retailer</TableHead>
-                                    {!hideWeekly && <TableHead className="h-8 px-2 text-right text-[10px] w-[50px]">Weekly</TableHead>}
                                     <TableHead className="h-8 px-2 text-right text-[10px] w-[50px]">Monthly</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -385,7 +400,6 @@ export default function StandardListsPage() {
                             {retailers.sort((a,b) => a.retailer.localeCompare(b.retailer)).map(retailer => (
                                 <TableRow key={retailer.id}>
                                     <TableCell className="font-medium text-[10px] py-1 px-2">{retailer.retailer}</TableCell>
-                                    {!hideWeekly && <TableCell className="text-right text-[10px] py-1 px-2 text-muted-foreground">{retailer.weeklyQuota}</TableCell>}
                                     <TableCell className="text-right text-[10px] py-1 px-2 text-muted-foreground">{retailer.monthlyQuota}</TableCell>
                                 </TableRow>
                             ))}
@@ -393,7 +407,6 @@ export default function StandardListsPage() {
                             <TableFooter>
                                 <TableRow>
                                     <TableCell className="font-bold text-[10px] py-1 px-2">Total</TableCell>
-                                    {!hideWeekly && <TableCell className="text-right font-bold text-[10px] py-1 px-2">{totalWeekly}</TableCell>}
                                     <TableCell className="text-right font-bold text-[10px] py-1 px-2">{totalMonthly}</TableCell>
                                 </TableRow>
                             </TableFooter>
@@ -430,7 +443,6 @@ export default function StandardListsPage() {
                                 <thead>
                                     <tr>
                                         <th style={{ border: '1px solid #ddd', padding: '8px', textAlign: 'left', backgroundColor: '#f2f2f2' }}>Retailer</th>
-                                        <th style={{ border: '1px solid #ddd', padding: '8px', textAlign: 'center', backgroundColor: '#f2f2f2' }}>Weekly Quota</th>
                                         <th style={{ border: '1px solid #ddd', padding: '8px', textAlign: 'center', backgroundColor: '#f2f2f2' }}>Monthly Quota</th>
                                     </tr>
                                 </thead>
@@ -438,7 +450,6 @@ export default function StandardListsPage() {
                                     {retailers.sort((a,b) => a.retailer.localeCompare(b.retailer)).map((sl) => (
                                         <tr key={sl.id}>
                                             <td style={{ border: '1px solid #ddd', padding: '8px' }}>{sl.retailer}</td>
-                                            <td style={{ border: '1px solid #ddd', padding: '8px', textAlign: 'center' }}>{sl.weeklyQuota}</td>
                                             <td style={{ border: '1px solid #ddd', padding: '8px', textAlign: 'center' }}>{sl.monthlyQuota}</td>
                                         </tr>
                                     ))}
@@ -446,7 +457,6 @@ export default function StandardListsPage() {
                                 <tfoot>
                                     <tr>
                                         <td style={{ border: '1px solid #ddd', padding: '8px', fontWeight: 'bold' }}>Total</td>
-                                        <td style={{ border: '1px solid #ddd', padding: '8px', textAlign: 'center', fontWeight: 'bold' }}>{retailers.reduce((sum, r) => sum + r.weeklyQuota, 0)}</td>
                                         <td style={{ border: '1px solid #ddd', padding: '8px', textAlign: 'center', fontWeight: 'bold' }}>{retailers.reduce((sum, r) => sum + r.monthlyQuota, 0)}</td>
                                     </tr>
                                 </tfoot>
