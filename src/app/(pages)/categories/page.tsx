@@ -837,6 +837,38 @@ const handleApplyToAll = (sourceConfig: TempConfiguration) => {
     });
   };
 
+  const handleExportCategoryCatalog = () => {
+    if (sortedAndFilteredCategories.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "No data",
+        description: "No categories match the current search or country filter.",
+      });
+      return;
+    }
+
+    const dataToExport = sortedAndFilteredCategories.map((g) => ({
+      Category: g.name,
+      Department: [g.department, g.subDepartment].filter(Boolean).join(" — "),
+      "Example Brands": g.exampleBrands,
+      Description: g.description,
+      Countries: [...g.countries].sort().join(", "),
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Category catalog");
+    XLSX.writeFile(
+      workbook,
+      `category-catalog-${new Date().toISOString().split("T")[0]}.xlsx`
+    );
+
+    toast({
+      title: "Export successful",
+      description: `Downloaded ${dataToExport.length} categor${dataToExport.length === 1 ? "y" : "ies"} (current filters).`,
+    });
+  };
+
 
    const handleSort = (key: keyof GroupedCategory) => {
     setCategorySort(prevSort => {
@@ -964,6 +996,17 @@ const handleApplyToAll = (sourceConfig: TempConfiguration) => {
                             ))}
                         </SelectContent>
                     </Select>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-9 text-xs shrink-0 whitespace-nowrap"
+                        onClick={handleExportCategoryCatalog}
+                        disabled={isLoading || sortedAndFilteredCategories.length === 0}
+                    >
+                        <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" />
+                        Export catalog
+                    </Button>
                 </div>
                  <Dialog>
                     <DialogTrigger asChild>
