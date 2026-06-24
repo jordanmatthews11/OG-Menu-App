@@ -206,7 +206,7 @@ export default function StandardListsPage() {
     const wb = XLSX.utils.book_new();
 
     Object.entries(selectedListGroupsForExport).forEach(([groupName, retailers]) => {
-      const sortedRetailers = retailers.sort((a,b) => a.retailer.localeCompare(b.retailer));
+      const sortedRetailers = [...retailers].sort((a, b) => b.monthlyQuota - a.monthlyQuota || a.retailer.localeCompare(b.retailer));
       
       const sheetData = sortedRetailers.map(r => ({
         Retailer: r.retailer,
@@ -228,7 +228,7 @@ export default function StandardListsPage() {
   };
 
   const handleCopyForContract = async (retailers: StoreList[]) => {
-    const sorted = [...retailers].sort((a, b) => a.retailer.localeCompare(b.retailer));
+    const sorted = [...retailers].sort((a, b) => b.monthlyQuota - a.monthlyQuota || a.retailer.localeCompare(b.retailer));
     const text = sorted.map((r) => `${r.retailer} (${r.monthlyQuota})`).join(', ');
     try {
       await navigator.clipboard.writeText(text);
@@ -397,7 +397,7 @@ export default function StandardListsPage() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                            {retailers.sort((a,b) => a.retailer.localeCompare(b.retailer)).map(retailer => (
+                            {[...retailers].sort((a, b) => b.monthlyQuota - a.monthlyQuota || a.retailer.localeCompare(b.retailer)).map(retailer => (
                                 <TableRow key={retailer.id}>
                                     <TableCell className="font-medium text-[10px] py-1 px-2">{retailer.retailer}</TableCell>
                                     <TableCell className="text-right text-[10px] py-1 px-2 text-muted-foreground">{retailer.monthlyQuota}</TableCell>
@@ -447,7 +447,7 @@ export default function StandardListsPage() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {retailers.sort((a,b) => a.retailer.localeCompare(b.retailer)).map((sl) => (
+                                    {[...retailers].sort((a, b) => b.monthlyQuota - a.monthlyQuota || a.retailer.localeCompare(b.retailer)).map((sl) => (
                                         <tr key={sl.id}>
                                             <td style={{ border: '1px solid #ddd', padding: '8px' }}>{sl.retailer}</td>
                                             <td style={{ border: '1px solid #ddd', padding: '8px', textAlign: 'center' }}>{sl.monthlyQuota}</td>
