@@ -38,6 +38,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { notifyCategoryUpdate } from '@/app/actions/notify';
 import { FirestorePermissionError, type SecurityRuleContext } from '@/firebase/errors';
+import { splitCountries, isCleanCountryToken } from '@/lib/countries';
 
 
 type DataType = 'categories' | 'storeLists' | 'boosters' | 'holdingCompanies' | 'customCategoryCodes' | 'authorizedUsers' | 'feedback' | 'legacyCodes';
@@ -51,6 +52,20 @@ const categorySchema = z.object({
     subDepartment: z.string().optional(),
     number: z.string().min(1, "Category code is required"),
     country: z.string().min(1, "Country is required"),
+    premium: z.boolean().default(false),
+    description: z.string().optional(),
+    notes: z.string().optional(),
+});
+
+// Form-only schema for categories. The stored Firestore field is `country` (one per row),
+// but the Edit/Add form lets admins pick one or more countries from a list and expands the
+// save into one document per country. Storage/import still use `categorySchema` above.
+const categoryFormSchema = z.object({
+    name: z.string().min(1, "Category name is required"),
+    department: z.string().optional(),
+    subDepartment: z.string().optional(),
+    number: z.string().min(1, "Category code is required"),
+    countries: z.array(z.string()).min(1, "Select at least one country"),
     premium: z.boolean().default(false),
     description: z.string().optional(),
     notes: z.string().optional(),
@@ -256,6 +271,25 @@ function DataUploader({ onUploadSuccess }: { onUploadSuccess: () => void }) {
 
                 if (records.length === 0) {
                     throw new Error('The uploaded file is empty.');
+                }
+
+                // For categories, expand any combined Country cell ("US | CA", "US, CA")
+                // into one record per country BEFORE batching, so each becomes its own row
+                // and we never exceed Firestore's per-batch op limit.
+                if (dataType === 'categories') {
+                    const expanded: any[] = [];
+                    for (const record of records) {
+                        const countryKey = Object.keys(record).find(k => k.toLowerCase() === 'country');
+                        const countries = splitCountries(countryKey ? String(record[countryKey] ?? '') : '');
+                        if (countryKey && countries.length > 1) {
+                            countries.forEach(c => expanded.push({ ...record, [countryKey]: c }));
+                        } else if (countryKey && countries.length === 1) {
+                            expanded.push({ ...record, [countryKey]: countries[0] });
+                        } else {
+                            expanded.push(record);
+                        }
+                    }
+                    records = expanded;
                 }
 
                 const batchSize = 400; // Firestore batch limit is 500 operations
@@ -786,8 +820,14 @@ function EditDialog({
         () => firestore ? collection(firestore, 'boosters') : null,
         [firestore]
     ));
+    const { data: allCategories } = useCollection<Category>(useMemoFirebase(
+        () => firestore ? collection(firestore, 'categories') : null,
+        [firestore]
+    ));
     const { toast } = useToast();
-    const schema = schemas[dataType];
+    // Categories use a form-only schema (multi-country picker) that expands to one row per
+    // country on save; every other data type uses its storage schema directly.
+    const schema = dataType === 'categories' ? categoryFormSchema : schemas[dataType];
     const form = useForm<z.infer<typeof schema>>({
         resolver: zodResolver(schema),
     });
@@ -795,9 +835,31 @@ function EditDialog({
     const isNew = !entity?.id;
     const countryForHoldingCompany = form.watch('country') as string | undefined;
 
+    // Countries already present in the catalog (clean, single values) feed the picker.
+    // Admin-added tokens (via "+ Add country") are kept in local state so they show up too.
+    const [addedCountries, setAddedCountries] = useState<string[]>([]);
+    const [newCountry, setNewCountry] = useState('');
+    const countryOptions = useMemo(() => {
+        const set = new Set<string>();
+        (allCategories || []).forEach(c => splitCountries(c.country).forEach(cc => set.add(cc)));
+        addedCountries.forEach(c => set.add(c));
+        return Array.from(set).sort((a, b) => a.localeCompare(b));
+    }, [allCategories, addedCountries]);
+
     useEffect(() => {
         if (isOpen) {
-            if (isNew) {
+            setNewCountry('');
+            setAddedCountries([]);
+            if (dataType === 'categories') {
+                if (isNew) {
+                    form.reset({ name: '', department: '', subDepartment: '', number: '', countries: [], premium: false, description: '', notes: '' });
+                } else if (entity) {
+                    const cat = entity as Category;
+                    const { country, ...rest } = cat as any;
+                    // Pre-select the row's country/countries; a combined "US | CA" splits to [US, CA].
+                    form.reset({ ...rest, countries: splitCountries(cat.country) });
+                }
+            } else if (isNew) {
                 form.reset(defaultValues[dataType]);
             } else if (entity) {
                 form.reset(entity);
@@ -837,37 +899,113 @@ function EditDialog({
         return [];
     };
 
+    // Categories save: expand the multi-country picker into one Firestore row per country.
+    // Additive and non-destructive — never deletes or overwrites other countries' rows.
+    const saveCategoryRecord = async (values: z.infer<typeof categoryFormSchema>) => {
+        if (!firestore) return;
+        const { countries, ...rest } = values as any;
+        const shared = Object.fromEntries(Object.entries(rest).filter(([_, v]) => v !== undefined));
+
+        // Clean + de-dupe selected countries (case-insensitive, preserve first casing).
+        const selected: string[] = [];
+        const seen = new Set<string>();
+        for (const c of (countries as string[]) || []) {
+            const t = String(c).trim();
+            if (t && !seen.has(t.toLowerCase())) { seen.add(t.toLowerCase()); selected.push(t); }
+        }
+        if (selected.length === 0) throw new Error('Select at least one country.');
+
+        const norm = (s: any) => String(s ?? '').trim().toLowerCase();
+        const sameGroup = (c: Category) => norm(c.name) === norm((shared as any).name) && norm(c.number) === norm((shared as any).number);
+
+        // Countries already owned by a sibling row in this Name+Code group (excluding the edited row).
+        const ownedByCountry = new Map<string, Category>();
+        (allCategories || []).forEach(c => {
+            if (!isNew && entity && c.id === entity.id) return;
+            if (sameGroup(c) && isCleanCountryToken(c.country)) ownedByCountry.set(norm(c.country), c);
+        });
+
+        const batch = writeBatch(firestore);
+        let created = 0, updated = 0, skipped = 0;
+
+        if (isNew) {
+            for (const country of selected) {
+                if (ownedByCountry.has(norm(country))) { skipped++; continue; }
+                const ref = doc(collection(firestore, 'categories'));
+                batch.set(ref, { ...shared, country, id: ref.id });
+                ownedByCountry.set(norm(country), { ...(shared as any), country, id: ref.id } as Category);
+                created++;
+            }
+            if (created === 0) throw new Error('All selected countries already exist for this category.');
+        } else {
+            const original = entity as Category;
+            const originalClean = isCleanCountryToken(original.country) ? original.country.trim() : null;
+            // Keep the edited row on its own country if still selected and not taken by a sibling;
+            // otherwise move it to the first selected country that no sibling owns.
+            let primary = (originalClean && selected.some(c => norm(c) === norm(originalClean)) && !ownedByCountry.has(norm(originalClean)))
+                ? selected.find(c => norm(c) === norm(originalClean))!
+                : selected.find(c => !ownedByCountry.has(norm(c)));
+            if (!primary) primary = originalClean ?? selected[0];
+
+            batch.set(doc(firestore, 'categories', original.id), { ...shared, country: primary, id: original.id }, { merge: true });
+            ownedByCountry.set(norm(primary), original);
+            updated++;
+
+            for (const country of selected) {
+                if (norm(country) === norm(primary)) continue;
+                if (ownedByCountry.has(norm(country))) { skipped++; continue; }
+                const ref = doc(collection(firestore, 'categories'));
+                batch.set(ref, { ...shared, country, id: ref.id });
+                ownedByCountry.set(norm(country), { ...(shared as any), country, id: ref.id } as Category);
+                created++;
+            }
+        }
+
+        await batch.commit();
+        await notifyCategoryUpdate({ ...(shared as any), country: selected[0] } as Category);
+
+        const parts: string[] = [];
+        if (created) parts.push(`${created} created`);
+        if (updated) parts.push(`${updated} updated`);
+        if (skipped) parts.push(`${skipped} already existed`);
+        toast({
+            title: isNew ? 'Category Created' : 'Category Updated',
+            description: `Saved one row per country${parts.length ? ` (${parts.join(', ')})` : ''}.`,
+        });
+    };
+
     const onSubmit = async (values: z.infer<typeof schema>) => {
         if (!firestore) return;
         try {
-            let docRef;
-            // Clean undefined values to prevent Firestore errors
-            const cleanedValues = Object.fromEntries(
-                Object.entries(values).filter(([_, v]) => v !== undefined)
-            );
-            let dataToSave: any = { ...cleanedValues };
-
-            if (isNew) {
-                const newDocRef = doc(collection(firestore, dataType));
-                docRef = newDocRef;
-                dataToSave.id = newDocRef.id;
-                if ('timestamp' in schema.shape) {
-                    dataToSave.timestamp = new Date().toISOString();
-                }
-            } else {
-                docRef = doc(firestore, dataType, entity.id);
-            }
-
-            await setDoc(docRef, dataToSave, { merge: true });
-
             if (dataType === 'categories') {
-                await notifyCategoryUpdate(dataToSave as Category);
+                await saveCategoryRecord(values as z.infer<typeof categoryFormSchema>);
+            } else {
+                let docRef;
+                // Clean undefined values to prevent Firestore errors
+                const cleanedValues = Object.fromEntries(
+                    Object.entries(values).filter(([_, v]) => v !== undefined)
+                );
+                let dataToSave: any = { ...cleanedValues };
+
+                if (isNew) {
+                    const newDocRef = doc(collection(firestore, dataType));
+                    docRef = newDocRef;
+                    dataToSave.id = newDocRef.id;
+                    if ('timestamp' in schema.shape) {
+                        dataToSave.timestamp = new Date().toISOString();
+                    }
+                } else {
+                    docRef = doc(firestore, dataType, entity.id);
+                }
+
+                await setDoc(docRef, dataToSave, { merge: true });
+
+                toast({
+                    title: isNew ? "Record Created" : "Record Updated",
+                    description: `The record has been successfully ${isNew ? 'created' : 'updated'}.`,
+                });
             }
-            
-            toast({
-                title: isNew ? "Record Created" : "Record Updated",
-                description: `The record has been successfully ${isNew ? 'created' : 'updated'}.`,
-            });
+
             onSuccess(isNew);
             setIsOpen(false);
 
@@ -895,6 +1033,98 @@ function EditDialog({
                             <div className="space-y-4">
                                 {Object.keys(schema.shape).map(fieldName => {
                                     if (fieldName === 'id' || fieldName === 'timestamp') return null;
+
+                                    // Special UI for categories.countries -> pick-from-list multi-select (no free typing).
+                                    // Selecting multiple countries creates one row per country on save.
+                                    if (dataType === 'categories' && fieldName === 'countries') {
+                                        return (
+                                            <FormField
+                                                key={fieldName}
+                                                control={form.control}
+                                                name={fieldName}
+                                                render={({ field }) => {
+                                                    const selected: string[] = field.value || [];
+                                                    const isSel = (c: string) => selected.some(s => s.toLowerCase() === c.toLowerCase());
+                                                    const toggle = (c: string) => {
+                                                        field.onChange(isSel(c) ? selected.filter(s => s.toLowerCase() !== c.toLowerCase()) : [...selected, c]);
+                                                    };
+                                                    const addCountry = () => {
+                                                        const token = newCountry.trim();
+                                                        if (!isCleanCountryToken(token)) {
+                                                            toast({ variant: 'destructive', title: 'Invalid country', description: 'Enter a single country with no spaces or separators (e.g. MX).' });
+                                                            return;
+                                                        }
+                                                        if (!countryOptions.some(o => o.toLowerCase() === token.toLowerCase())) {
+                                                            setAddedCountries(prev => [...prev, token]);
+                                                        }
+                                                        if (!isSel(token)) field.onChange([...selected, token]);
+                                                        setNewCountry('');
+                                                    };
+                                                    return (
+                                                        <FormItem>
+                                                            <FormLabel className="text-[11px]">Countries</FormLabel>
+                                                            <FormControl>
+                                                                <div className="space-y-1">
+                                                                    <div className="flex flex-wrap gap-1 min-h-[20px]">
+                                                                        {selected.length === 0 ? (
+                                                                            <span className="text-[10px] text-muted-foreground">No countries selected.</span>
+                                                                        ) : (
+                                                                            selected.map(c => (
+                                                                                <Badge key={c} variant="secondary" className="text-[10px] gap-1">
+                                                                                    {c}
+                                                                                    <button type="button" onClick={() => toggle(c)} className="opacity-60 hover:opacity-100">
+                                                                                        <X className="h-3 w-3" />
+                                                                                    </button>
+                                                                                </Badge>
+                                                                            ))
+                                                                        )}
+                                                                    </div>
+                                                                    <Popover>
+                                                                        <PopoverTrigger asChild>
+                                                                            <Button type="button" variant="outline" size="sm" className="h-7 text-[11px] justify-between">
+                                                                                <span>Select countries</span>
+                                                                                <ChevronsUpDown className="h-3 w-3 ml-1 opacity-60" />
+                                                                            </Button>
+                                                                        </PopoverTrigger>
+                                                                        <PopoverContent className="p-0 w-64">
+                                                                            <Command>
+                                                                                <CommandInput placeholder="Search countries..." className="text-[11px]" />
+                                                                                <CommandList>
+                                                                                    <CommandEmpty>No countries found.</CommandEmpty>
+                                                                                    <CommandGroup>
+                                                                                        {countryOptions.map(c => {
+                                                                                            const checked = isSel(c);
+                                                                                            return (
+                                                                                                <CommandItem key={c} value={c} onSelect={() => toggle(c)} className="flex items-center justify-between text-[11px]">
+                                                                                                    <span>{c}</span>
+                                                                                                    <Checkbox checked={checked} onCheckedChange={() => toggle(c)} className="h-3 w-3" />
+                                                                                                </CommandItem>
+                                                                                            );
+                                                                                        })}
+                                                                                    </CommandGroup>
+                                                                                </CommandList>
+                                                                            </Command>
+                                                                            <div className="border-t p-2 flex items-center gap-1">
+                                                                                <Input
+                                                                                    value={newCountry}
+                                                                                    onChange={e => setNewCountry(e.target.value)}
+                                                                                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCountry(); } }}
+                                                                                    placeholder="Add country (e.g. MX)"
+                                                                                    className="h-7 text-[11px]"
+                                                                                />
+                                                                                <Button type="button" size="sm" className="h-7 text-[11px]" onClick={addCountry} disabled={!newCountry.trim()}>Add</Button>
+                                                                            </div>
+                                                                        </PopoverContent>
+                                                                    </Popover>
+                                                                </div>
+                                                            </FormControl>
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    );
+                                                }}
+                                            />
+                                        );
+                                    }
 
                                     // Special UI for holdingCompanies.bannerIds -> booster multi-select
                                     if (dataType === 'holdingCompanies' && fieldName === 'bannerIds') {
@@ -1384,6 +1614,96 @@ function DataTable<T extends Entity>({ columns, data, isLoading, tableName, data
     );
 }
 
+// One-time/on-demand cleanup: split existing combined-country category rows ("US | CA")
+// into one clean row per country, de-duping against existing rows. Idempotent.
+function FixMultiCountryCategoriesButton({ categories, onDone }: { categories: Category[] | null; onDone: () => void }) {
+    const firestore = useFirestore();
+    const { toast } = useToast();
+    const [isOpen, setIsOpen] = useState(false);
+    const [isRunning, setIsRunning] = useState(false);
+
+    const badRows = useMemo(
+        () => (categories || []).filter(c => splitCountries(c.country).length > 1),
+        [categories]
+    );
+
+    const runCleanup = async () => {
+        if (!firestore) return;
+        setIsRunning(true);
+        try {
+            const all = categories || [];
+            const norm = (s: any) => String(s ?? '').trim().toLowerCase();
+            const keyOf = (name: any, number: any, country: any) => `${norm(name)}|${norm(number)}|${norm(country)}`;
+
+            // Existing clean per-country rows — never create a duplicate of one of these.
+            const existingKeys = new Set<string>();
+            all.forEach(c => { if (isCleanCountryToken(c.country)) existingKeys.add(keyOf(c.name, c.number, c.country)); });
+
+            let batch = writeBatch(firestore);
+            let ops = 0;
+            const commits: Promise<void>[] = [];
+            let created = 0;
+            const flush = () => { if (ops > 0) { commits.push(batch.commit()); batch = writeBatch(firestore); ops = 0; } };
+
+            for (const c of badRows) {
+                for (const country of splitCountries(c.country)) {
+                    const k = keyOf(c.name, c.number, country);
+                    if (existingKeys.has(k)) continue;
+                    existingKeys.add(k);
+                    const ref = doc(collection(firestore, 'categories'));
+                    const { id, ...rest } = c as any;
+                    batch.set(ref, { ...rest, country, id: ref.id });
+                    created++; ops++;
+                    if (ops >= 400) flush();
+                }
+                batch.delete(doc(firestore, 'categories', c.id));
+                ops++;
+                if (ops >= 400) flush();
+            }
+            flush();
+            await Promise.all(commits);
+
+            toast({
+                title: 'Cleanup complete',
+                description: `Split ${badRows.length} combined row${badRows.length === 1 ? '' : 's'} into ${created} new row${created === 1 ? '' : 's'} and removed the combined row${badRows.length === 1 ? '' : 's'}.`,
+            });
+            setIsOpen(false);
+            onDone();
+        } catch (error: any) {
+            console.error('Cleanup error:', error);
+            toast({ variant: 'destructive', title: 'Cleanup failed', description: error.message || 'An unexpected error occurred.' });
+        } finally {
+            setIsRunning(false);
+        }
+    };
+
+    return (
+        <AlertDialog open={isOpen} onOpenChange={setIsOpen}>
+            <AlertDialogTrigger asChild>
+                <Button type="button" variant="outline" size="sm" className="h-7 text-[11px]" disabled={badRows.length === 0}>
+                    <Wand2 className="mr-1 h-3.5 w-3.5" />
+                    Fix multi-country rows{badRows.length ? ` (${badRows.length})` : ''}
+                </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Fix multi-country category rows?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Found <span className="font-bold text-foreground">{badRows.length}</span> categor{badRows.length === 1 ? 'y' : 'ies'} whose Country field contains more than one country (e.g. &quot;US | CA&quot;). This creates one clean row per country (skipping any that already exist) and removes the combined row. This cannot be undone.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel disabled={isRunning}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={(e) => { e.preventDefault(); runCleanup(); }} disabled={isRunning}>
+                        {isRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        Split &amp; clean up
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+    );
+}
+
 function CategoriesTable({ data, isLoading, onDataChange }: { data: Category[] | null; isLoading: boolean; onDataChange: () => void; }) {
     const columns: (keyof Category)[] = ['name', 'department', 'subDepartment', 'number', 'country', 'premium', 'description', 'notes'];
     return <DataTable columns={columns} data={data} isLoading={isLoading} tableName="Categories" dataType="categories" onDataChange={onDataChange} />;
@@ -1521,7 +1841,10 @@ export default function AdminConsolePage() {
           </TabsList>
           <TabsContent value="categories">
             <Card>
-                <CardHeader><CardTitle className="text-[11px]">Categories</CardTitle></CardHeader>
+                <CardHeader className="flex-row items-center justify-between space-y-0">
+                    <CardTitle className="text-[11px]">Categories</CardTitle>
+                    <FixMultiCountryCategoriesButton categories={categories} onDone={handleCompositeDataChange} />
+                </CardHeader>
                 <CardContent><CategoriesTable data={categories} isLoading={isLoading} onDataChange={handleCompositeDataChange} /></CardContent>
             </Card>
           </TabsContent>
