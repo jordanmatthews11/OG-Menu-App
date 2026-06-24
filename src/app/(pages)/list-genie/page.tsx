@@ -19,6 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { RetailerTabs } from "@/components/retailer/retailer-tabs";
+import * as XLSX from 'xlsx';
 
 
 interface RankedRetailer extends Booster {
@@ -262,12 +263,100 @@ export default function ListGeniePage() {
         dragOverItem.current = null;
     };
 
-    const handleDownloadPdf = () => {
-      toast({ title: "Feature coming soon!", description: "PDF exports will be available in a future update."})
+    const exportFileName = (rec: Recommendation) =>
+      `${rec.listName}-${rec.country}`.replace(/[^a-zA-Z0-9_-]+/g, '_');
+
+    const handleDownloadPdf = async (rec: Recommendation) => {
+      try {
+        const { jsPDF } = await import('jspdf');
+        const { default: autoTable } = await import('jspdf-autotable');
+
+        const matchedRetailerNames = new Set(rec.matchedRetailers.map(r => normalizeRetailerName(r.name)));
+        const totalMonthly = rec.fullStandardList.reduce((sum, sl) => sum + sl.monthlyQuota, 0);
+
+        const doc = new jsPDF();
+        const marginX = 14;
+
+        doc.setFontSize(16);
+        doc.text(rec.listName, marginX, 18);
+        doc.setFontSize(10);
+        doc.setTextColor(110);
+        doc.text(`${rec.country}  •  ${rec.matchPercentage}% Match`, marginX, 25);
+        doc.setTextColor(0);
+
+        doc.setFontSize(11);
+        doc.text('Retailers from Standard List', marginX, 35);
+
+        autoTable(doc, {
+          startY: 38,
+          head: [['Retailer', 'Monthly']],
+          body: rec.fullStandardList.map(sl => [sl.retailer, String(sl.monthlyQuota)]),
+          foot: [['Total', String(totalMonthly)]],
+          headStyles: { fillColor: [74, 45, 138], halign: 'left' },
+          footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
+          columnStyles: { 1: { halign: 'right' } },
+          styles: { fontSize: 9, cellPadding: 2 },
+          theme: 'striped',
+          didParseCell: (data) => {
+            if (data.section === 'body') {
+              const sl = rec.fullStandardList[data.row.index];
+              if (sl && matchedRetailerNames.has(normalizeRetailerName(sl.retailer))) {
+                data.cell.styles.fontStyle = 'bold';
+              }
+            }
+          },
+        });
+
+        if (rec.suggestedBoosters.length > 0) {
+          const finalY = (doc as any).lastAutoTable?.finalY ?? 38;
+          doc.setFontSize(11);
+          doc.text('Suggested Boosters to Add', marginX, finalY + 10);
+          autoTable(doc, {
+            startY: finalY + 13,
+            body: rec.suggestedBoosters.map(b => [b.name]),
+            styles: { fontSize: 9, cellPadding: 2 },
+            theme: 'plain',
+          });
+        }
+
+        doc.save(`${exportFileName(rec)}.pdf`);
+        toast({ title: 'PDF downloaded', description: `Exported "${rec.listName}".` });
+      } catch (err) {
+        console.error('PDF export failed:', err);
+        toast({ variant: 'destructive', title: 'PDF export failed', description: 'Could not generate the PDF. Please try again.' });
+      }
     };
 
-    const handleExportXlsx = () => {
-      toast({ title: "Feature coming soon!", description: "Excel exports will be available in a future update."})
+    const handleExportXlsx = (rec: Recommendation) => {
+      try {
+        const totalMonthly = rec.fullStandardList.reduce((sum, sl) => sum + sl.monthlyQuota, 0);
+
+        const sheetData: (string | number)[][] = [
+          [rec.listName],
+          [`Country: ${rec.country}`],
+          [`Match: ${rec.matchPercentage}%`],
+          [],
+          ['Retailer', 'Monthly'],
+          ...rec.fullStandardList.map(sl => [sl.retailer, sl.monthlyQuota] as (string | number)[]),
+          ['Total', totalMonthly],
+        ];
+
+        if (rec.suggestedBoosters.length > 0) {
+          sheetData.push([], ['Suggested Boosters to Add'], ...rec.suggestedBoosters.map(b => [b.name] as (string | number)[]));
+        }
+
+        const ws = XLSX.utils.aoa_to_sheet(sheetData);
+        ws['!cols'] = [{ wch: 32 }, { wch: 10 }];
+
+        const wb = XLSX.utils.book_new();
+        const safeSheetName = rec.listName.substring(0, 31).replace(/[^a-zA-Z0-9_ ]/g, '') || 'List';
+        XLSX.utils.book_append_sheet(wb, ws, safeSheetName);
+        XLSX.writeFile(wb, `${exportFileName(rec)}.xlsx`);
+        toast({ title: 'XLSX downloaded', description: `Exported "${rec.listName}".` });
+      } catch (err) {
+        console.error('XLSX export failed:', err);
+        toast({ variant: 'destructive', title: 'XLSX export failed', description: 'Could not generate the spreadsheet. Please try again.' });
+      }
     };
     
     const visibleRecommendations = useMemo(() => {
@@ -423,7 +512,6 @@ export default function ListGeniePage() {
                                                     <TableHeader>
                                                         <TableRow>
                                                             <TableHead className="h-auto py-1">Retailer</TableHead>
-                                                            <TableHead className="h-auto py-1 text-right">Wkly</TableHead>
                                                             <TableHead className="h-auto py-1 text-right">Mthly</TableHead>
                                                         </TableRow>
                                                     </TableHeader>
@@ -436,7 +524,6 @@ export default function ListGeniePage() {
                                                                         {isMatch && <Check className="h-4 w-4 text-green-500" />}
                                                                         {sl.retailer}
                                                                     </TableCell>
-                                                                    <TableCell className={cn("py-1 text-right", !isMatch && "text-muted-foreground")}>{sl.weeklyQuota}</TableCell>
                                                                     <TableCell className={cn("py-1 text-right", !isMatch && "text-muted-foreground")}>{sl.monthlyQuota}</TableCell>
                                                                 </TableRow>
                                                             );
@@ -470,10 +557,10 @@ export default function ListGeniePage() {
                                             )}
                                         </CardContent>
                                         <CardFooter className="flex gap-2 p-2 border-t">
-                                            <Button variant="outline" size="sm" className="w-full text-xs" onClick={handleDownloadPdf}>
+                                            <Button variant="outline" size="sm" className="w-full text-xs" onClick={() => handleDownloadPdf(rec)}>
                                                 <Download className="mr-2 h-4 w-4" /> PDF
                                             </Button>
-                                            <Button variant="outline" size="sm" className="w-full text-xs" onClick={handleExportXlsx}>
+                                            <Button variant="outline" size="sm" className="w-full text-xs" onClick={() => handleExportXlsx(rec)}>
                                                 <FileSpreadsheet className="mr-2 h-4 w-4" /> XLSX
                                             </Button>
                                         </CardFooter>
