@@ -7,7 +7,11 @@ import { cn } from "@/lib/utils";
 const RETAILER_TABS = [
   {
     href: "/standard-lists",
-    label: "See Available Retailer/Channel Mix Lists",
+    label: "Retailer/Channel Mix Lists",
+  },
+  {
+    href: "/available-retailers",
+    label: "See all available Retailers",
   },
   {
     href: "/list-genie",
