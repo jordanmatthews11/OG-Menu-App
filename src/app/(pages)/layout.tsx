@@ -6,6 +6,8 @@ import { UserNav } from '@/components/auth/user-nav';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { LifeBuoy } from 'lucide-react';
 
 const TABS = [
   { href: '/categories', label: 'Categories' },
@@ -40,7 +42,21 @@ export default function PagesLayout({
               </span>
             </Link>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <Button
+              asChild
+              size="lg"
+              className="bg-white text-[#4A2D8A] hover:bg-white/90 font-semibold shadow-sm whitespace-nowrap"
+            >
+              <Link
+                href="https://support-dashboard.storesight.org/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <LifeBuoy className="mr-2 h-5 w-5" />
+                Submit Support Ticket to Ops Team
+              </Link>
+            </Button>
             <UserNav variant="header" />
           </div>
         </header>
