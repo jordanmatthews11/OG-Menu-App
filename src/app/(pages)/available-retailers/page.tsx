@@ -5,6 +5,13 @@ import type { Booster } from "@/lib/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -32,6 +39,7 @@ export default function AvailableRetailersPage() {
   const { toast } = useToast();
 
   const [search, setSearch] = useState("");
+  const [countryFilter, setCountryFilter] = useState("all");
   const [sort, setSort] = useState<SortConfig>({ key: "name", direction: "asc" });
 
   useEffect(() => {
@@ -45,8 +53,20 @@ export default function AvailableRetailersPage() {
     }
   }, [error, toast]);
 
+  const availableCountries = useMemo(() => {
+    const set = new Set<string>();
+    (boosters || []).forEach((b) => {
+      if (b.country) set.add(b.country);
+    });
+    return ["all", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
+  }, [boosters]);
+
   const rows = useMemo(() => {
     let list = boosters ? [...boosters] : [];
+
+    if (countryFilter !== "all") {
+      list = list.filter((b) => b.country === countryFilter);
+    }
 
     if (search) {
       const q = search.toLowerCase();
@@ -65,7 +85,7 @@ export default function AvailableRetailersPage() {
     });
 
     return list;
-  }, [boosters, search, sort]);
+  }, [boosters, countryFilter, search, sort]);
 
   const toggleSort = (key: SortKey) =>
     setSort((prev) =>
@@ -103,24 +123,38 @@ export default function AvailableRetailersPage() {
       <Card>
         <CardContent className="p-4 space-y-4">
           <div className="flex items-center justify-between gap-4">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search retailers or countries..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-10 text-xs h-9"
-              />
-              {search && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                  onClick={() => setSearch("")}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              )}
+            <div className="flex items-center gap-2 flex-1">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search retailers or countries..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-10 text-xs h-9"
+                />
+                {search && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                    onClick={() => setSearch("")}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+              <Select value={countryFilter} onValueChange={setCountryFilter}>
+                <SelectTrigger className="w-[180px] h-9 text-xs">
+                  <SelectValue placeholder="Filter by country..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableCountries.map((c) => (
+                    <SelectItem key={c} value={c} className="text-xs">
+                      {c === "all" ? "All Countries" : c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <p className="text-xs text-muted-foreground whitespace-nowrap">
               {rows.length} retailer{rows.length === 1 ? "" : "s"}
