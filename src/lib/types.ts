@@ -21,6 +21,7 @@ export type Category = {
     country: Country;
     premium: boolean;
     notes?: string;
+    url?: string;
 };
 
 export type StoreList = {

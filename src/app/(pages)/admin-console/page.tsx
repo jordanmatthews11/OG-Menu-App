@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Upload, FileCode, Search, X, FileSpreadsheet, PlusCircle, Edit, Trash2, ArrowUpDown, Download, ChevronsUpDown, AlertTriangle, Wand2, Check, MinusCircle, History } from 'lucide-react';
+import { Loader2, Upload, FileCode, Search, X, FileSpreadsheet, PlusCircle, Edit, Trash2, ArrowUpDown, Download, ChevronsUpDown, AlertTriangle, Wand2, Check, MinusCircle, History, ExternalLink } from 'lucide-react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 import type { Category, StoreList, Booster, HoldingCompany, CustomCategoryCode, AuthorizedUser, Feedback, LegacyCode } from '@/lib/types';
@@ -51,6 +51,7 @@ const categorySchema = z.object({
     department: z.string().optional(),
     subDepartment: z.string().optional(),
     number: z.string().min(1, "Category code is required"),
+    url: z.string().url("Enter a valid URL (e.g. https://example.com)").optional().or(z.literal('')),
     country: z.string().min(1, "Country is required"),
     premium: z.boolean().default(false),
     description: z.string().optional(),
@@ -65,6 +66,7 @@ const categoryFormSchema = z.object({
     department: z.string().optional(),
     subDepartment: z.string().optional(),
     number: z.string().min(1, "Category code is required"),
+    url: z.string().url("Enter a valid URL (e.g. https://example.com)").optional().or(z.literal('')),
     countries: z.array(z.string()).min(1, "Select at least one country"),
     premium: z.boolean().default(false),
     description: z.string().optional(),
@@ -147,7 +149,7 @@ const schemas: Record<DataType, z.ZodObject<any, any>> = {
 };
 
 const defaultValues: Record<DataType, any> = {
-    categories: { name: '', department: '', subDepartment: '', number: '', country: '', premium: false, description: '', notes: '' },
+    categories: { name: '', department: '', subDepartment: '', number: '', url: '', country: '', premium: false, description: '', notes: '' },
     storeLists: { name: '', retailer: '', country: '', weeklyQuota: 0, monthlyQuota: 0 },
     boosters: { name: '', country: '' },
     holdingCompanies: { name: '', country: '', bannerIds: [] as string[] },
@@ -185,7 +187,7 @@ function DataUploader({ onUploadSuccess }: { onUploadSuccess: () => void }) {
         }
 
         const headers: Partial<Record<DataType, string[]>> = {
-            categories: ['name', 'department', 'subDepartment', 'number', 'country', 'premium', 'description', 'notes'],
+            categories: ['name', 'department', 'subDepartment', 'number', 'url', 'country', 'premium', 'description', 'notes'],
             storeLists: ['name', 'retailer', 'country', 'weeklyQuota', 'monthlyQuota'],
             boosters: ['name', 'country'],
             customCategoryCodes: ['submittedBy', 'customer', 'category', 'categoryCode', 'codeType', 'jobIds', 'notes'],
@@ -852,7 +854,7 @@ function EditDialog({
             setAddedCountries([]);
             if (dataType === 'categories') {
                 if (isNew) {
-                    form.reset({ name: '', department: '', subDepartment: '', number: '', countries: [], premium: false, description: '', notes: '' });
+                    form.reset({ name: '', department: '', subDepartment: '', number: '', url: '', countries: [], premium: false, description: '', notes: '' });
                 } else if (entity) {
                     const cat = entity as Category;
                     const { country, ...rest } = cat as any;
@@ -1223,7 +1225,7 @@ function EditDialog({
                                             render={({ field }) => (
                                                 <FormItem>
                                                     <FormLabel className="text-[11px]">
-                                                        {fieldName.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
+                                                        {fieldName === 'url' ? 'URL' : fieldName.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
                                                     </FormLabel>
                                                     <FormControl>
                                                         {fieldType === 'select' ? (
@@ -1493,6 +1495,9 @@ function DataTable<T extends Entity>({ columns, data, isLoading, tableName, data
                                 if (dataType === 'categories' && col === 'number') {
                                     header = 'Category Code';
                                 }
+                                if (dataType === 'categories' && col === 'url') {
+                                    header = 'URL';
+                                }
                                 if (dataType === 'categories' && col === 'notes') {
                                     header = 'Collection Notes';
                                 }
@@ -1523,6 +1528,24 @@ function DataTable<T extends Entity>({ columns, data, isLoading, tableName, data
                                     <TableCell key={String(col)} className="text-[11px] max-w-[200px] whitespace-pre-wrap">
                                         {(() => {
                                             const val = (row as any)[col];
+                                            if (dataType === 'categories' && col === 'url') {
+                                                const raw = typeof val === 'string' ? val.trim() : '';
+                                                if (!raw) return null;
+                                                const href = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+                                                return (
+                                                    <a
+                                                        href={href}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        title={href}
+                                                        className="inline-flex text-primary hover:text-primary/80"
+                                                    >
+                                                        <ExternalLink className="h-4 w-4" />
+                                                        <span className="sr-only">Open category page</span>
+                                                    </a>
+                                                );
+                                            }
                                             if ((dataType === 'feedback' || dataType === 'customCategoryCodes' || dataType === 'legacyCodes') && col === 'timestamp' && val) {
                                                 try {
                                                     return format(new Date(val), "PPp");
@@ -1705,7 +1728,7 @@ function FixMultiCountryCategoriesButton({ categories, onDone }: { categories: C
 }
 
 function CategoriesTable({ data, isLoading, onDataChange }: { data: Category[] | null; isLoading: boolean; onDataChange: () => void; }) {
-    const columns: (keyof Category)[] = ['name', 'department', 'subDepartment', 'number', 'country', 'premium', 'description', 'notes'];
+    const columns: (keyof Category)[] = ['name', 'department', 'subDepartment', 'number', 'url', 'country', 'premium', 'description', 'notes'];
     return <DataTable columns={columns} data={data} isLoading={isLoading} tableName="Categories" dataType="categories" onDataChange={onDataChange} />;
 }
 
