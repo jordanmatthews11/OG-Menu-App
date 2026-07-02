@@ -7,7 +7,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import type { Category, StoreList, Booster } from '@/lib/types';
-import { Search, X, Loader2, ArrowUpDown, Download, FileSpreadsheet, Star, Info } from 'lucide-react';
+import { Search, X, Loader2, ArrowUpDown, Download, FileSpreadsheet, Star, Info, ExternalLink } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
   Table,
@@ -369,6 +369,11 @@ export default function CategoriesPage() {
                             {sortedAndFilteredCategories.map((group) => {
                                 const isPremium = group.sourceCategories.some(c => c.premium);
 
+                                const categoryUrlRaw = group.sourceCategories.map(c => c.url?.trim()).find(Boolean) || '';
+                                const categoryHref = categoryUrlRaw
+                                    ? (/^https?:\/\//i.test(categoryUrlRaw) ? categoryUrlRaw : `https://${categoryUrlRaw}`)
+                                    : '';
+
                                 const descriptionsByCountry = group.sourceCategories.reduce((acc, cat) => {
                                     const desc = cat.description || 'No description available.';
                                     if (!acc.has(desc)) {
@@ -400,6 +405,25 @@ export default function CategoriesPage() {
                                                     </TooltipTrigger>
                                                     <TooltipContent>
                                                         <p>Premium Category</p>
+                                                    </TooltipContent>
+                                                </Tooltip>
+                                            )}
+                                            {categoryHref && (
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <a
+                                                            href={categoryHref}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            className="inline-flex text-primary hover:text-primary/80"
+                                                        >
+                                                            <ExternalLink className="h-3.5 w-3.5" />
+                                                            <span className="sr-only">Open category page</span>
+                                                        </a>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent>
+                                                        <p>Open category page</p>
                                                     </TooltipContent>
                                                 </Tooltip>
                                             )}
