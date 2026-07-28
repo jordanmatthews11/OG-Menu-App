@@ -285,7 +285,7 @@ export default function StandardListsPage() {
           </div>
           <div className="flex items-center gap-2">
             <Button asChild variant="outline" size="sm" className="text-[10px]">
-              <Link href="https://studio--store-list-builder2.us-central1.hosted.app/" target="_blank">
+              <Link href="https://store-list.storesight.org/" target="_blank" rel="noopener noreferrer">
                 <Download className="mr-2 h-4 w-4" />
                 Retail List Downloader
               </Link>

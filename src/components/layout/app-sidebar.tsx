@@ -50,7 +50,7 @@ export function AppSidebar() {
 
   const opsResourcesLinks = [
       { href: '/code-directory', icon: BookCopy, label: 'Master Code Directory' },
-      { href: 'https://studio--store-list-builder2.us-central1.hosted.app/', icon: Download, label: 'Retail List Downloader' },
+      { href: 'https://store-list.storesight.org/', icon: Download, label: 'Retail List Downloader' },
       { href: 'https://app.shelfgram.com/admin-portal/private_spaces', icon: Settings, label: 'Storesight Admin Portal' },
       { href: 'https://my.fieldagent.net/admin/shelfgram/suite/', icon: Wrench, label: 'Admin - Suites' },
   ];
