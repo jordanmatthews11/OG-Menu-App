@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, GripVertical, Loader2, Search, Wand2, X, Check, Info, Download, FileSpreadsheet } from "lucide-react";
+import { ArrowLeft, GripVertical, Loader2, Search, Wand2, X, Check, Info, Download, FileSpreadsheet, Building2 } from "lucide-react";
 import Link from "next/link";
 import type { Booster, StoreList, HoldingCompany } from '@/lib/types';
 import { useFirestore, useCollection, useMemoFirebase } from '@/firebase';
@@ -73,6 +73,46 @@ export default function ListGeniePage() {
         return [...new Set(boosters.map(b => b.country))].sort();
     }, [boosters]);
 
+    /**
+     * Normalized names already in the ranked list. Dedupe is by NAME, not just booster id, so a
+     * banner can't be added twice — e.g. picking "Ahold Delhaize (All Banners)" pulls in Hannaford,
+     * and Hannaford is then unavailable even if a separate booster record shares that name.
+     */
+    const selectedRetailerNames = useMemo(
+        () => new Set(preferredList.map(r => normalizeRetailerName(r.name))),
+        [preferredList]
+    );
+
+    /** Holding companies for the selected country, indexed for banner/parent lookups. */
+    const holdingContext = useMemo(() => {
+        const parentByBoosterId = new Map<string, HoldingCompany>();
+        const parentByBannerName = new Map<string, HoldingCompany>();
+        const holdingByName = new Map<string, HoldingCompany>();
+
+        (holdingCompanies || [])
+            .filter(hc => sameCountry(hc.country, selectedCountry))
+            .forEach(hc => {
+                holdingByName.set(normalizeForHoldingMatch(hc.name), hc);
+                (hc.bannerIds || []).forEach(id => {
+                    parentByBoosterId.set(id, hc);
+                    const booster = (boosters || []).find(b => b.id === id);
+                    if (booster) parentByBannerName.set(normalizeRetailerName(booster.name), hc);
+                });
+            });
+
+        return { parentByBoosterId, parentByBannerName, holdingByName };
+    }, [holdingCompanies, boosters, selectedCountry]);
+
+    /** The holding company this retailer is a banner OF, if any. */
+    const parentHoldingFor = (r: { id: string; name: string }): HoldingCompany | null =>
+        holdingContext.parentByBoosterId.get(r.id)
+        ?? holdingContext.parentByBannerName.get(normalizeRetailerName(r.name))
+        ?? null;
+
+    /** The holding company this retailer IS (an "(All Banners)" parent), if any. */
+    const holdingSelfFor = (r: { name: string }): HoldingCompany | null =>
+        holdingContext.holdingByName.get(normalizeForHoldingMatch(r.name)) ?? null;
+
     const availableRetailers = useMemo(() => {
         if (!selectedCountry || !boosters) return [];
         const lowercasedQuery = searchQuery.toLowerCase().trim();
@@ -84,36 +124,61 @@ export default function ListGeniePage() {
                 if (!lowercasedQuery) return true;
                 const nameLower = b.name.toLowerCase();
                 const nameNormalized = nameLower.replace(/[^a-z0-9]/g, '');
-                
+
                 // Standard includes match or fuzzy normalized match
-                return nameLower.includes(lowercasedQuery) || 
+                return nameLower.includes(lowercasedQuery) ||
                        (normalizedQuery.length > 0 && nameNormalized.includes(normalizedQuery));
             })
             .filter(b => !preferredList.some(pr => pr.id === b.id))
+            .filter(b => !selectedRetailerNames.has(normalizeRetailerName(b.name)))
             .filter(b => !expandedParentIds.has(b.id));
-    }, [boosters, selectedCountry, searchQuery, preferredList, expandedParentIds]);
+    }, [boosters, selectedCountry, searchQuery, preferredList, selectedRetailerNames, expandedParentIds]);
 
     const handleAddRetailer = (retailer: Booster) => {
-        const retailerNorm = normalizeForHoldingMatch(retailer.name);
-        const holding = holdingCompanies?.find(
-            hc => normalizeForHoldingMatch(hc.name) === retailerNorm && hc.country === selectedCountry
-        );
-        if (holding && boosters) {
+        // Already covered (same booster or same retailer name) — nothing to add.
+        if (
+            preferredList.some(pr => pr.id === retailer.id) ||
+            selectedRetailerNames.has(normalizeRetailerName(retailer.name))
+        ) {
+            toast({
+                title: 'Already in your list',
+                description: `${retailer.name} is already in your ranked list.`,
+            });
+            return;
+        }
+
+        const holding = holdingSelfFor(retailer);
+        const resolvedBanners = holding && boosters
+            ? (holding.bannerIds || [])
+                .map(id => boosters.find(b => b.id === id && sameCountry(b.country, selectedCountry)))
+                .filter((b): b is Booster => !!b)
+            : [];
+
+        // Only treat it as a parent if its banners actually resolve; otherwise add it as a retailer.
+        if (holding && resolvedBanners.length > 0) {
             const existingIds = new Set(preferredList.map(pr => pr.id));
+            const existingNames = new Set(selectedRetailerNames);
             const toAdd: RankedRetailer[] = [];
             let nextRank = preferredList.length + 1;
-            for (const bannerId of holding.bannerIds) {
-                const matchingBooster = boosters.find(b => b.id === bannerId && b.country === selectedCountry);
-                if (matchingBooster && !existingIds.has(matchingBooster.id)) {
-                    toAdd.push({ ...matchingBooster, rank: nextRank++ });
-                    existingIds.add(matchingBooster.id);
-                }
+
+            for (const banner of resolvedBanners) {
+                const nameKey = normalizeRetailerName(banner.name);
+                // Skip banners already covered, so expanding a parent never duplicates a pick.
+                if (existingIds.has(banner.id) || existingNames.has(nameKey)) continue;
+                toAdd.push({ ...banner, rank: nextRank++ });
+                existingIds.add(banner.id);
+                existingNames.add(nameKey);
             }
+
+            // Hide the parent even if every banner was already picked, so it can't be re-added.
+            setExpandedParentIds(prev => new Set(prev).add(retailer.id));
             if (toAdd.length > 0) {
-                setExpandedParentIds(prev => new Set(prev).add(retailer.id));
                 setPreferredList(prev => [...prev, ...toAdd]);
             } else {
-                setPreferredList(prev => [...prev, { ...retailer, rank: prev.length + 1 }]);
+                toast({
+                    title: 'Banners already added',
+                    description: `All banners for ${retailer.name} are already in your ranked list.`,
+                });
             }
         } else {
             setPreferredList(prev => [...prev, { ...retailer, rank: prev.length + 1 }]);
@@ -121,7 +186,21 @@ export default function ListGeniePage() {
     };
 
     const handleRemoveRetailer = (retailerId: string) => {
-        setPreferredList(prev => prev.filter(r => r.id !== retailerId).map((r, index) => ({...r, rank: index + 1})));
+        const removed = preferredList.find(r => r.id === retailerId);
+        const remaining = preferredList.filter(r => r.id !== retailerId);
+        setPreferredList(remaining.map((r, index) => ({ ...r, rank: index + 1 })));
+
+        // If that was the last banner of a holding company, make the parent selectable again.
+        const parent = removed ? parentHoldingFor(removed) : null;
+        if (parent && !remaining.some(r => parentHoldingFor(r)?.id === parent.id)) {
+            setExpandedParentIds(prev => {
+                const next = new Set(prev);
+                (boosters || [])
+                    .filter(b => holdingSelfFor(b)?.id === parent.id)
+                    .forEach(b => next.delete(b.id));
+                return next;
+            });
+        }
     };
 
     const handleAskGenie = () => {
@@ -424,12 +503,35 @@ export default function ListGeniePage() {
                             </div>
                             <ScrollArea className="h-64">
                                 <div className="pr-3 space-y-1">
-                                {availableRetailers.length > 0 ? availableRetailers.map(retailer => (
+                                {availableRetailers.length > 0 ? availableRetailers.map(retailer => {
+                                    const self = holdingSelfFor(retailer);
+                                    const parent = self ? null : parentHoldingFor(retailer);
+                                    return (
                                     <div key={retailer.id} className="flex items-center space-x-2 p-1.5 text-sm rounded-md hover:bg-muted">
                                         <Button variant="outline" size="sm" className="h-7 w-8 text-xs" onClick={() => handleAddRetailer(retailer)}>+</Button>
                                         <span className="font-normal flex-1 text-xs">{retailer.name}</span>
+                                        {self && (
+                                            <Badge
+                                                variant="secondary"
+                                                className="shrink-0 gap-1 py-0 text-[9px] font-normal"
+                                                title={`Holding company — adds all ${(self.bannerIds || []).length} banners`}
+                                            >
+                                                <Building2 className="h-2.5 w-2.5" />
+                                                {(self.bannerIds || []).length} banners
+                                            </Badge>
+                                        )}
+                                        {parent && (
+                                            <Badge
+                                                variant="outline"
+                                                className="max-w-[120px] shrink-0 truncate py-0 text-[9px] font-normal text-muted-foreground"
+                                                title={`Part of ${parent.name}`}
+                                            >
+                                                ↳ {parent.name}
+                                            </Badge>
+                                        )}
                                     </div>
-                                )) : <div className="text-center text-xs text-muted-foreground p-4">No retailers available or all have been added.</div>}
+                                    );
+                                }) : <div className="text-center text-xs text-muted-foreground p-4">No retailers available or all have been added.</div>}
                                 </div>
                             </ScrollArea>
                         </div>
@@ -440,8 +542,10 @@ export default function ListGeniePage() {
                              <ScrollArea className="h-64">
                                 <div className="pr-3 space-y-0.5">
                                 {preferredList.length > 0 ? (
-                                    preferredList.map(retailer => (
-                                        <div 
+                                    preferredList.map(retailer => {
+                                        const parent = parentHoldingFor(retailer);
+                                        return (
+                                        <div
                                             key={retailer.id}
                                             draggable
                                             onDragStart={(e) => handleDragStart(e, retailer)}
@@ -456,11 +560,21 @@ export default function ListGeniePage() {
                                             <GripVertical className="h-4 w-4 text-muted-foreground"/>
                                             <span className="text-[11px] font-bold w-5 text-center">{retailer.rank}.</span>
                                             <span className="flex-1 font-medium text-xs">{retailer.name}</span>
+                                            {parent && (
+                                                <Badge
+                                                    variant="outline"
+                                                    className="max-w-[140px] shrink-0 truncate py-0 text-[9px] font-normal text-muted-foreground"
+                                                    title={`Part of ${parent.name}`}
+                                                >
+                                                    ↳ {parent.name}
+                                                </Badge>
+                                            )}
                                             <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => handleRemoveRetailer(retailer.id)}>
                                                 <X className="h-3 w-3" />
                                             </Button>
                                         </div>
-                                    ))
+                                        );
+                                    })
                                 ) : (
                                     <div className="text-center text-xs text-muted-foreground p-8">Add retailers from the left to build your list.</div>
                                 )}
@@ -548,7 +662,8 @@ export default function ListGeniePage() {
                                                                                         <span className="ml-1 text-muted-foreground">({child.percentage}%)</span>
                                                                                     </span>
                                                                                 </TableCell>
-                                                                                <TableCell className={cn("py-0.5 text-right text-[10px]", !childMatch && "text-muted-foreground")}>{child.monthlyQuota}</TableCell>
+                                                                                {/* Extra right padding pulls sub-retailer counts out of the parent's count column. */}
+                                                                                <TableCell className={cn("py-0.5 pr-6 text-right text-[10px]", !childMatch && "text-muted-foreground")}>{child.monthlyQuota}</TableCell>
                                                                             </TableRow>
                                                                         );
                                                                     })}

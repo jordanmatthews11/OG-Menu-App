@@ -429,7 +429,8 @@ export default function StandardListsPage() {
                                             <TableCell className="text-[10px] py-0.5 px-2 pl-5 text-muted-foreground">
                                                 ↳ {child.name} <span className="opacity-70">({child.percentage}%)</span>
                                             </TableCell>
-                                            <TableCell className="text-right text-[10px] py-0.5 px-2 text-muted-foreground">{child.monthlyQuota}</TableCell>
+                                            {/* Extra right padding pulls sub-retailer counts out of the parent's count column. */}
+                                            <TableCell className="text-right text-[10px] py-0.5 pl-2 pr-6 text-muted-foreground">{child.monthlyQuota}</TableCell>
                                         </TableRow>
                                     ))}
                                 </React.Fragment>
