@@ -1,6 +1,7 @@
 
 "use client";
 
+import * as React from 'react';
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -20,6 +21,8 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { RetailerTabs } from "@/components/retailer/retailer-tabs";
 import * as XLSX from 'xlsx';
+import { normalizeRetailerName, normalizeForHoldingMatch, retailerNamesMatch, sameCountry } from '@/lib/retailer-match';
+import { buildBreakout, expandedRetailerNames, type BreakoutRow } from '@/lib/holding-companies';
 
 
 interface RankedRetailer extends Booster {
@@ -33,99 +36,14 @@ interface Recommendation {
     matchedRetailers: Booster[];
     unmatchedRetailers: Booster[];
     fullStandardList: StoreList[];
+    /** Rows with their holding-company banner decomposition (parent + indented children). */
+    breakout: BreakoutRow[];
     suggestedBoosters: Booster[];
 }
 
-const retailerSynonyms: Record<string, string> = {
-    "cvs": "cvs pharmacy",
-    "costco wholesale": "costco",
-    "heb": "h-e-b",
-    "bj's": "bj's wholesale club",
-    "ahold (all banners)": "ahold",
-};
-
-const normalizeRetailerName = (name: string): string => {
-    let lowerName = name.toLowerCase().trim();
-    // Strip common suffixes like "(all banners)" before matching
-    lowerName = lowerName.replace(/\s*\(all banners\)\s*$/i, '').trim();
-
-    for (const key in retailerSynonyms) {
-        if (lowerName === key || lowerName === retailerSynonyms[key]) {
-            return retailerSynonyms[key];
-        }
-    }
-    return lowerName;
-};
-
-/**
- * Exact-match key for holding-company detection: trim + lowercase only.
- * We intentionally do NOT strip "(All Banners)", so ONLY a pick whose name exactly equals
- * the holding company (e.g. "Albertsons (All Banners)") triggers banner expansion. A plain
- * "Albertsons" pick is added as a single retailer instead.
- */
-const normalizeForHoldingMatch = (name: string): string =>
-    name.trim().toLowerCase();
-
-/**
- * Fuzzy retailer matching for comparing a user's picks against a standard list.
- *
- * Matches trivial variations of the SAME brand — corporate suffixes ("Corp"), punctuation
- * ("H-E-B" vs "HEB"), or a one-sided generic descriptor/qualifier ("CVS" vs "CVS Pharmacy",
- * "Target" vs "Target (full chain)") — while keeping genuinely different variants apart:
- * "Walmart (Full Chain)" must NOT match "Walmart Supercenters", since a user may specifically
- * want one or the other.
- *
- * Deterministic, no edit-distance (so regional variants like WEST/EAST or ON/QC never
- * collapse): reduce each name to a token set (punctuation dropped, pure corporate noise
- * removed), then match if the sets are equal, OR one is a subset of the other and every
- * extra token is a generic descriptor or a bare number. Two names that each carry a
- * different qualifier are never in a subset relation, so they never match.
- */
-const CORE_NOISE = new Set([
-    "the", "corp", "corporation", "inc", "incorporated", "co", "company", "llc", "ltd", "group", "holdings",
-]);
-const DESCRIPTORS = new Set([
-    "pharmacy", "wholesale", "market", "markets", "supermarket", "supermarkets",
-    "store", "stores", "club", "outlet", "outlets",
-    "supercenter", "supercenters", "supercentre", "supercentres", "only",
-    "full", "chain", "all", "banners", "banner",
-]);
-
-const _tokenCache = new Map<string, Set<string>>();
-const retailerTokenSet = (name: string): Set<string> => {
-    let s = _tokenCache.get(name);
-    if (!s) {
-        s = new Set(
-            name.toLowerCase()
-                .replace(/[^a-z0-9]+/g, " ") // punctuation/parens/hyphens -> spaces ("h-e-b" -> "heb")
-                .split(/\s+/)
-                .filter(Boolean)
-                .filter(t => !CORE_NOISE.has(t))
-        );
-        _tokenCache.set(name, s);
-    }
-    return s;
-};
-
-const fuzzyRetailerMatch = (a: string, b: string): boolean => {
-    const A = retailerTokenSet(a);
-    const B = retailerTokenSet(b);
-    if (A.size === 0 || B.size === 0) return false;
-
-    const [small, large] = A.size <= B.size ? [A, B] : [B, A];
-    // small must be a subset of large...
-    for (const t of small) if (!large.has(t)) return false;
-    // ...and every extra token in large must be a generic descriptor or a bare number.
-    for (const t of large) if (!small.has(t) && !DESCRIPTORS.has(t) && !/^\d+$/.test(t)) return false;
-    return true;
-};
-
-/** True if a standard-list retailer is covered by any of the user's matched picks (exact or fuzzy). */
-const retailerIsMatched = (storeRetailer: string, matchedPicks: Booster[]): boolean =>
-    matchedPicks.some(r =>
-        normalizeRetailerName(r.name) === normalizeRetailerName(storeRetailer) ||
-        fuzzyRetailerMatch(r.name, storeRetailer)
-    );
+/** True if a retailer name (store row or broken-out banner) is covered by one of the user's matched picks. */
+const retailerIsMatched = (retailerName: string, matchedPicks: Booster[]): boolean =>
+    matchedPicks.some(r => retailerNamesMatch(r.name, retailerName));
 
 
 export default function ListGeniePage() {
@@ -258,11 +176,18 @@ export default function ListGeniePage() {
                 const unmatchedRetailers: Booster[] = [];
                 let weightedScore = 0;
 
+                const sortedRows = [...fullList].sort((a, b) => b.monthlyQuota - a.monthlyQuota || a.retailer.localeCompare(b.retailer));
+                // Decompose holding-company parents (e.g. "Ahold Delhaize 40") into their banners so a
+                // pick like "Food Lion" matches a list that only names the parent.
+                const breakout = buildBreakout(sortedRows, holdingCompanies, boosters);
+                const coveredNames = expandedRetailerNames(breakout);
+
                 preferredList.forEach(preferredRetailer => {
-                    // Exact (normalized/synonym) match first, then qualifier-aware fuzzy match.
+                    // Exact (normalized/synonym) match, then qualifier-aware fuzzy match, against
+                    // both the list's own rows and any broken-out banner names.
                     const isMatch =
                         standardListRetailers.has(normalizeRetailerName(preferredRetailer.name)) ||
-                        fullList.some(sl => fuzzyRetailerMatch(preferredRetailer.name, sl.retailer));
+                        coveredNames.some(n => retailerNamesMatch(preferredRetailer.name, n));
                     if (isMatch) {
                         matchedRetailers.push(preferredRetailer);
                         weightedScore += (totalRanks + 1 - preferredRetailer.rank);
@@ -274,7 +199,7 @@ export default function ListGeniePage() {
                 const matchPercentage = maxWeightedScore > 0
                     ? Math.round((weightedScore / maxWeightedScore) * 100)
                     : 0;
-                
+
                 return {
                     listName,
                     country: selectedCountry,
@@ -282,7 +207,8 @@ export default function ListGeniePage() {
                     matchedRetailers,
                     unmatchedRetailers,
                     suggestedBoosters: unmatchedRetailers,
-                    fullStandardList: fullList.sort((a, b) => a.retailer.localeCompare(b.retailer)),
+                    fullStandardList: sortedRows,
+                    breakout,
                 };
             });
             
@@ -354,10 +280,21 @@ export default function ListGeniePage() {
         doc.setFontSize(11);
         doc.text('Retailers from Standard List', marginX, 35);
 
+        // Flatten parent rows + their banner decomposition, tracking which are matched/children.
+        const pdfRows = rec.breakout.flatMap(({ row, children }) => [
+          { label: row.retailer, qty: row.monthlyQuota, isChild: false, matched: retailerIsMatched(row.retailer, rec.matchedRetailers) },
+          ...children.map(c => ({
+            label: `    ${c.name} (${c.percentage}%)`,
+            qty: c.monthlyQuota,
+            isChild: true,
+            matched: retailerIsMatched(c.name, rec.matchedRetailers),
+          })),
+        ]);
+
         autoTable(doc, {
           startY: 38,
           head: [['Retailer', 'Monthly']],
-          body: rec.fullStandardList.map(sl => [sl.retailer, String(sl.monthlyQuota)]),
+          body: pdfRows.map(r => [r.label, String(r.qty)]),
           foot: [['Total', String(totalMonthly)]],
           headStyles: { fillColor: [74, 45, 138], halign: 'left' },
           footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
@@ -366,9 +303,12 @@ export default function ListGeniePage() {
           theme: 'striped',
           didParseCell: (data) => {
             if (data.section === 'body') {
-              const sl = rec.fullStandardList[data.row.index];
-              if (sl && retailerIsMatched(sl.retailer, rec.matchedRetailers)) {
-                data.cell.styles.fontStyle = 'bold';
+              const r = pdfRows[data.row.index];
+              if (!r) return;
+              if (r.matched) data.cell.styles.fontStyle = 'bold';
+              if (r.isChild) {
+                data.cell.styles.fontSize = 8;
+                data.cell.styles.textColor = r.matched ? 40 : 130;
               }
             }
           },
@@ -404,7 +344,11 @@ export default function ListGeniePage() {
           [`Match: ${rec.matchPercentage}%`],
           [],
           ['Retailer', 'Monthly'],
-          ...rec.fullStandardList.map(sl => [sl.retailer, sl.monthlyQuota] as (string | number)[]),
+          // Parent rows, each followed by its indented banner decomposition.
+          ...rec.breakout.flatMap(({ row, children }) => [
+            [row.retailer, row.monthlyQuota] as (string | number)[],
+            ...children.map(c => [`    ↳ ${c.name} (${c.percentage}%)`, c.monthlyQuota] as (string | number)[]),
+          ]),
           ['Total', totalMonthly],
         ];
 
@@ -582,16 +526,33 @@ export default function ListGeniePage() {
                                                         </TableRow>
                                                     </TableHeader>
                                                     <TableBody>
-                                                        {rec.fullStandardList.map(sl => {
-                                                            const isMatch = retailerIsMatched(sl.retailer, rec.matchedRetailers);
+                                                        {rec.breakout.map(({ row: sl, children }) => {
+                                                            const parentMatch = retailerIsMatched(sl.retailer, rec.matchedRetailers);
                                                             return (
-                                                                <TableRow key={sl.id}>
-                                                                    <TableCell className={cn("py-1 flex items-center gap-2", isMatch ? "font-bold" : "text-muted-foreground")}>
-                                                                        {isMatch && <Check className="h-4 w-4 text-green-500" />}
-                                                                        {sl.retailer}
-                                                                    </TableCell>
-                                                                    <TableCell className={cn("py-1 text-right", !isMatch && "text-muted-foreground")}>{sl.monthlyQuota}</TableCell>
-                                                                </TableRow>
+                                                                <React.Fragment key={sl.id}>
+                                                                    <TableRow>
+                                                                        <TableCell className={cn("py-1 flex items-center gap-2", parentMatch ? "font-bold" : "text-muted-foreground")}>
+                                                                            {parentMatch && <Check className="h-4 w-4 text-green-500" />}
+                                                                            {sl.retailer}
+                                                                        </TableCell>
+                                                                        <TableCell className={cn("py-1 text-right", !parentMatch && "text-muted-foreground")}>{sl.monthlyQuota}</TableCell>
+                                                                    </TableRow>
+                                                                    {children.map(child => {
+                                                                        const childMatch = retailerIsMatched(child.name, rec.matchedRetailers);
+                                                                        return (
+                                                                            <TableRow key={`${sl.id}-${child.boosterId}`} className="bg-muted/30">
+                                                                                <TableCell className={cn("py-0.5 pl-6 flex items-center gap-2", childMatch ? "font-semibold" : "text-muted-foreground")}>
+                                                                                    {childMatch && <Check className="h-3.5 w-3.5 text-green-500" />}
+                                                                                    <span className="text-[10px]">
+                                                                                        ↳ {child.name}
+                                                                                        <span className="ml-1 text-muted-foreground">({child.percentage}%)</span>
+                                                                                    </span>
+                                                                                </TableCell>
+                                                                                <TableCell className={cn("py-0.5 text-right text-[10px]", !childMatch && "text-muted-foreground")}>{child.monthlyQuota}</TableCell>
+                                                                            </TableRow>
+                                                                        );
+                                                                    })}
+                                                                </React.Fragment>
                                                             );
                                                         })}
                                                     </TableBody>

@@ -44,6 +44,12 @@ export type HoldingCompany = {
     id: string;
     name: string;
     bannerIds: string[];
+    /**
+     * Percentage of the parent's commitment allocated to each banner, keyed by booster id.
+     * Must sum to 100 when saved from the Admin Console. Missing/legacy records fall back to
+     * an even split at read time (see `getBannerPercentages`).
+     */
+    bannerPercentages?: Record<string, number>;
     country: Country;
 };
 

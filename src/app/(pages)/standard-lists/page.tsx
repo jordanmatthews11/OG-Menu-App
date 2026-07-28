@@ -36,14 +36,30 @@ import { collection } from "firebase/firestore";
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
 import { RetailerTabs } from "@/components/retailer/retailer-tabs";
+import * as React from 'react';
+import type { Booster, HoldingCompany } from "@/lib/types";
+import { buildBreakout } from "@/lib/holding-companies";
 
 
 type GroupedStoreLists = Record<string, StoreList[]>;
+
+/** Sort rows by monthly desc (name tiebreak), then decompose holding-company parents into banners. */
+const withBreakout = (
+  rows: StoreList[],
+  holdingCompanies: HoldingCompany[] | null,
+  boosters: Booster[] | null
+) => buildBreakout(
+  [...rows].sort((a, b) => b.monthlyQuota - a.monthlyQuota || a.retailer.localeCompare(b.retailer)),
+  holdingCompanies,
+  boosters
+);
 
 export default function StandardListsPage() {
   const firestore = useFirestore();
   const storeListsQuery = useMemoFirebase(() => firestore ? collection(firestore, 'storeLists') : null, [firestore]);
   const { data: storeLists, isLoading, error } = useCollection<StoreList>(storeListsQuery);
+  const { data: holdingCompanies } = useCollection<HoldingCompany>(useMemoFirebase(() => firestore ? collection(firestore, 'holdingCompanies') : null, [firestore]));
+  const { data: boosters } = useCollection<Booster>(useMemoFirebase(() => firestore ? collection(firestore, 'boosters') : null, [firestore]));
 
   const [selectedCountry, setSelectedCountry] = useState<string>("all");
   const [searchRetailers, setSearchRetailers] = useState<string[]>([]);
@@ -206,12 +222,11 @@ export default function StandardListsPage() {
     const wb = XLSX.utils.book_new();
 
     Object.entries(selectedListGroupsForExport).forEach(([groupName, retailers]) => {
-      const sortedRetailers = [...retailers].sort((a, b) => b.monthlyQuota - a.monthlyQuota || a.retailer.localeCompare(b.retailer));
-      
-      const sheetData = sortedRetailers.map(r => ({
-        Retailer: r.retailer,
-        'Monthly Quota': r.monthlyQuota,
-      }));
+      // Parent rows sorted by monthly desc, each followed by its indented banner decomposition.
+      const sheetData = withBreakout(retailers, holdingCompanies, boosters).flatMap(({ row, children }) => [
+        { Retailer: row.retailer, 'Monthly Quota': row.monthlyQuota },
+        ...children.map(c => ({ Retailer: `    ↳ ${c.name} (${c.percentage}%)`, 'Monthly Quota': c.monthlyQuota })),
+      ]);
 
       const totalMonthly = retailers.reduce((sum, r) => sum + r.monthlyQuota, 0);
       sheetData.push({
@@ -228,8 +243,14 @@ export default function StandardListsPage() {
   };
 
   const handleCopyForContract = async (retailers: StoreList[]) => {
-    const sorted = [...retailers].sort((a, b) => b.monthlyQuota - a.monthlyQuota || a.retailer.localeCompare(b.retailer));
-    const text = sorted.map((r) => `${r.retailer} (${r.monthlyQuota})`).join(', ');
+    // Holding-company parents keep their contractual total, with the banner split in brackets.
+    const text = withBreakout(retailers, holdingCompanies, boosters)
+      .map(({ row, children }) => {
+        const base = `${row.retailer} (${row.monthlyQuota})`;
+        if (children.length === 0) return base;
+        return `${base} [${children.map(c => `${c.name} ${c.monthlyQuota}`).join(', ')}]`;
+      })
+      .join(', ');
     try {
       await navigator.clipboard.writeText(text);
       toast({ title: 'Copied to clipboard!' });
@@ -397,11 +418,21 @@ export default function StandardListsPage() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                            {[...retailers].sort((a, b) => b.monthlyQuota - a.monthlyQuota || a.retailer.localeCompare(b.retailer)).map(retailer => (
-                                <TableRow key={retailer.id}>
-                                    <TableCell className="font-medium text-[10px] py-1 px-2">{retailer.retailer}</TableCell>
-                                    <TableCell className="text-right text-[10px] py-1 px-2 text-muted-foreground">{retailer.monthlyQuota}</TableCell>
-                                </TableRow>
+                            {withBreakout(retailers, holdingCompanies, boosters).map(({ row: retailer, children }) => (
+                                <React.Fragment key={retailer.id}>
+                                    <TableRow>
+                                        <TableCell className="font-medium text-[10px] py-1 px-2">{retailer.retailer}</TableCell>
+                                        <TableCell className="text-right text-[10px] py-1 px-2 text-muted-foreground">{retailer.monthlyQuota}</TableCell>
+                                    </TableRow>
+                                    {children.map(child => (
+                                        <TableRow key={`${retailer.id}-${child.boosterId}`} className="bg-muted/30">
+                                            <TableCell className="text-[10px] py-0.5 px-2 pl-5 text-muted-foreground">
+                                                ↳ {child.name} <span className="opacity-70">({child.percentage}%)</span>
+                                            </TableCell>
+                                            <TableCell className="text-right text-[10px] py-0.5 px-2 text-muted-foreground">{child.monthlyQuota}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                </React.Fragment>
                             ))}
                             </TableBody>
                             <TableFooter>
@@ -447,11 +478,21 @@ export default function StandardListsPage() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {[...retailers].sort((a, b) => b.monthlyQuota - a.monthlyQuota || a.retailer.localeCompare(b.retailer)).map((sl) => (
-                                        <tr key={sl.id}>
-                                            <td style={{ border: '1px solid #ddd', padding: '8px' }}>{sl.retailer}</td>
-                                            <td style={{ border: '1px solid #ddd', padding: '8px', textAlign: 'center' }}>{sl.monthlyQuota}</td>
-                                        </tr>
+                                    {withBreakout(retailers, holdingCompanies, boosters).map(({ row: sl, children }) => (
+                                        <React.Fragment key={sl.id}>
+                                            <tr>
+                                                <td style={{ border: '1px solid #ddd', padding: '8px' }}>{sl.retailer}</td>
+                                                <td style={{ border: '1px solid #ddd', padding: '8px', textAlign: 'center' }}>{sl.monthlyQuota}</td>
+                                            </tr>
+                                            {children.map((c) => (
+                                                <tr key={`${sl.id}-${c.boosterId}`}>
+                                                    <td style={{ border: '1px solid #ddd', padding: '8px 8px 8px 28px', color: '#555', fontSize: '11px' }}>
+                                                        ↳ {c.name} ({c.percentage}%)
+                                                    </td>
+                                                    <td style={{ border: '1px solid #ddd', padding: '8px', textAlign: 'center', color: '#555', fontSize: '11px' }}>{c.monthlyQuota}</td>
+                                                </tr>
+                                            ))}
+                                        </React.Fragment>
                                     ))}
                                 </tbody>
                                 <tfoot>

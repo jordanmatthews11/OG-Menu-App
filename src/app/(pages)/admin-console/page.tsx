@@ -39,6 +39,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { notifyCategoryUpdate } from '@/app/actions/notify';
 import { FirestorePermissionError, type SecurityRuleContext } from '@/firebase/errors';
 import { splitCountries, isCleanCountryToken } from '@/lib/countries';
+import { evenSplitPercentages } from '@/lib/holding-companies';
 
 
 type DataType = 'categories' | 'storeLists' | 'boosters' | 'holdingCompanies' | 'customCategoryCodes' | 'authorizedUsers' | 'feedback' | 'legacyCodes';
@@ -101,6 +102,9 @@ const holdingCompanySchema = z.object({
     name: z.string().min(1, "Name is required"),
     country: z.string().min(1, "Country is required"),
     bannerIds: z.array(z.string()).min(1, "At least one banner is required"),
+    // Percentage of the parent commitment per banner, keyed by booster id. The 100% total is
+    // enforced in onSubmit (kept out of the schema so the generic form machinery keeps working).
+    bannerPercentages: z.record(z.coerce.number().min(0).max(100)).optional(),
 });
 
 const customCategoryCodeSchema = z.object({
@@ -152,7 +156,7 @@ const defaultValues: Record<DataType, any> = {
     categories: { name: '', department: '', subDepartment: '', number: '', url: '', country: '', premium: false, description: '', notes: '' },
     storeLists: { name: '', retailer: '', country: '', weeklyQuota: 0, monthlyQuota: 0 },
     boosters: { name: '', country: '' },
-    holdingCompanies: { name: '', country: '', bannerIds: [] as string[] },
+    holdingCompanies: { name: '', country: '', bannerIds: [] as string[], bannerPercentages: {} as Record<string, number> },
     customCategoryCodes: { timestamp: new Date().toISOString(), submittedBy: '', customer: '', category: '', categoryCode: '', codeType: 'Custom', jobIds: '', notes: '' },
     authorizedUsers: { name: '', email: '' },
     feedback: { timestamp: new Date().toISOString(), name: '', email: '', feedbackType: 'general', description: '', details: '', page: '', feedbackStatus: 'New', adminNotes: '' },
@@ -836,6 +840,7 @@ function EditDialog({
 
     const isNew = !entity?.id;
     const countryForHoldingCompany = form.watch('country') as string | undefined;
+    const bannerPercentages = (form.watch('bannerPercentages') as Record<string, number> | undefined) || {};
 
     // Countries already present in the catalog (clean, single values) feed the picker.
     // Admin-added tokens (via "+ Add country") are kept in local state so they show up too.
@@ -861,6 +866,19 @@ function EditDialog({
                     // Pre-select the row's country/countries; a combined "US | CA" splits to [US, CA].
                     form.reset({ ...rest, countries: splitCountries(cat.country) });
                 }
+            } else if (dataType === 'holdingCompanies' && !isNew && entity) {
+                // Legacy records have no percentages; prefill an even split (sums to exactly 100)
+                // so an existing holding company can be reviewed and saved without manual math.
+                const hc = entity as HoldingCompany;
+                const ids = hc.bannerIds || [];
+                const stored = hc.bannerPercentages || {};
+                const hasAny = ids.some(id => typeof stored[id] === 'number' && stored[id] > 0);
+                let percentages = stored;
+                if (!hasAny && ids.length > 0) {
+                    const even = evenSplitPercentages(ids.length);
+                    percentages = ids.reduce<Record<string, number>>((acc, id, i) => { acc[id] = even[i]; return acc; }, {});
+                }
+                form.reset({ ...(hc as any), bannerPercentages: percentages });
             } else if (isNew) {
                 form.reset(defaultValues[dataType]);
             } else if (entity) {
@@ -979,6 +997,21 @@ function EditDialog({
     const onSubmit = async (values: z.infer<typeof schema>) => {
         if (!firestore) return;
         try {
+            if (dataType === 'holdingCompanies') {
+                // Banner percentages must total exactly 100% before a holding company can be saved.
+                const ids: string[] = (values as any).bannerIds || [];
+                const pct: Record<string, number> = (values as any).bannerPercentages || {};
+                const sum = ids.reduce((s, id) => s + (Number(pct[id]) || 0), 0);
+                if (ids.length > 0 && Math.round(sum) !== 100) {
+                    throw new Error(`Banner percentages must total exactly 100% (currently ${Math.round(sum * 100) / 100}%).`);
+                }
+                // Drop percentages for banners that are no longer selected.
+                (values as any).bannerPercentages = ids.reduce<Record<string, number>>((acc, id) => {
+                    acc[id] = Number(pct[id]) || 0;
+                    return acc;
+                }, {});
+            }
+
             if (dataType === 'categories') {
                 await saveCategoryRecord(values as z.infer<typeof categoryFormSchema>);
             } else {
@@ -1035,6 +1068,8 @@ function EditDialog({
                             <div className="space-y-4">
                                 {Object.keys(schema.shape).map(fieldName => {
                                     if (fieldName === 'id' || fieldName === 'timestamp') return null;
+                                    // Rendered inside the bannerIds block below, not as its own field.
+                                    if (dataType === 'holdingCompanies' && fieldName === 'bannerPercentages') return null;
 
                                     // Special UI for categories.countries -> pick-from-list multi-select (no free typing).
                                     // Selecting multiple countries creates one row per country on save.
@@ -1148,22 +1183,73 @@ function EditDialog({
                                                             </FormLabel>
                                                             <FormControl>
                                                                 <div className="space-y-1">
-                                                                    <div className="flex flex-wrap gap-1 min-h-[20px]">
-                                                                        {selectedIds.length === 0 ? (
-                                                                            <span className="text-[10px] text-muted-foreground">
-                                                                                No boosters selected.
-                                                                            </span>
-                                                                        ) : (
-                                                                            selectedIds.map(id => {
-                                                                                const booster = boostersForCountry.find(b => b.id === id) || (allBoosters || []).find(b => b.id === id);
-                                                                                return (
-                                                                                    <Badge key={id} variant="secondary" className="text-[10px]">
-                                                                                        {booster?.name ?? id}
-                                                                                    </Badge>
-                                                                                );
-                                                                            })
-                                                                        )}
-                                                                    </div>
+                                                                    {selectedIds.length === 0 ? (
+                                                                        <span className="text-[10px] text-muted-foreground">
+                                                                            No boosters selected.
+                                                                        </span>
+                                                                    ) : (() => {
+                                                                        const total = selectedIds.reduce((s, id) => s + (Number(bannerPercentages[id]) || 0), 0);
+                                                                        const rounded = Math.round(total * 100) / 100;
+                                                                        const isValid = Math.round(total) === 100;
+                                                                        return (
+                                                                            <div className="space-y-1 rounded-md border p-2">
+                                                                                <div className="flex items-center justify-between">
+                                                                                    <span className="text-[10px] font-medium text-muted-foreground">
+                                                                                        Share of parent commitment
+                                                                                    </span>
+                                                                                    <Button
+                                                                                        type="button"
+                                                                                        variant="ghost"
+                                                                                        size="sm"
+                                                                                        className="h-6 text-[10px]"
+                                                                                        onClick={() => {
+                                                                                            const even = evenSplitPercentages(selectedIds.length);
+                                                                                            form.setValue(
+                                                                                                'bannerPercentages' as any,
+                                                                                                selectedIds.reduce<Record<string, number>>((acc, id, i) => { acc[id] = even[i]; return acc; }, {}),
+                                                                                                { shouldDirty: true }
+                                                                                            );
+                                                                                        }}
+                                                                                    >
+                                                                                        Even split
+                                                                                    </Button>
+                                                                                </div>
+                                                                                {selectedIds.map(id => {
+                                                                                    const booster = boostersForCountry.find(b => b.id === id) || (allBoosters || []).find(b => b.id === id);
+                                                                                    return (
+                                                                                        <div key={id} className="flex items-center gap-2">
+                                                                                            <span className="flex-1 text-[11px] truncate">{booster?.name ?? id}</span>
+                                                                                            <Input
+                                                                                                type="number"
+                                                                                                min={0}
+                                                                                                max={100}
+                                                                                                step="any"
+                                                                                                value={bannerPercentages[id] ?? ''}
+                                                                                                onChange={(e) => {
+                                                                                                    const raw = e.target.value;
+                                                                                                    form.setValue(
+                                                                                                        'bannerPercentages' as any,
+                                                                                                        { ...bannerPercentages, [id]: raw === '' ? 0 : Number(raw) },
+                                                                                                        { shouldDirty: true }
+                                                                                                    );
+                                                                                                }}
+                                                                                                className="h-7 w-16 text-[11px]"
+                                                                                                aria-label={`Percentage for ${booster?.name ?? id}`}
+                                                                                            />
+                                                                                            <span className="text-[10px] text-muted-foreground">%</span>
+                                                                                        </div>
+                                                                                    );
+                                                                                })}
+                                                                                <div className={cn(
+                                                                                    "flex items-center justify-between border-t pt-1 text-[10px] font-semibold",
+                                                                                    isValid ? "text-green-600" : "text-destructive"
+                                                                                )}>
+                                                                                    <span>Total</span>
+                                                                                    <span>{rounded}%{isValid ? '' : ' — must equal 100%'}</span>
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    })()}
                                                                     <Popover>
                                                                         <PopoverTrigger asChild>
                                                                             <Button variant="outline" size="sm" className="h-7 text-[11px] justify-between">
@@ -1557,13 +1643,16 @@ function DataTable<T extends Entity>({ columns, data, isLoading, tableName, data
                                                 return <Badge variant={val ? 'default' : 'secondary'}>{val ? 'Yes' : 'No'}</Badge>;
                                             }
                                             if (Array.isArray(val)) {
-                                                // For holdingCompanies.bannerIds, resolve booster IDs to names
+                                                // For holdingCompanies.bannerIds, resolve booster IDs to names + their share %
                                                 if (dataType === 'holdingCompanies' && col === 'bannerIds') {
-                                                    const boostersForDisplay = (allBoosters || []).filter(b => val.includes(b.id));
-                                                    if (boostersForDisplay.length === 0) {
-                                                        return val.join(', ');
-                                                    }
-                                                    return boostersForDisplay.map(b => b.name).join(', ');
+                                                    const pct = (row as any).bannerPercentages as Record<string, number> | undefined;
+                                                    const named = val.map(id => {
+                                                        const booster = (allBoosters || []).find(b => b.id === id);
+                                                        const name = booster?.name ?? id;
+                                                        const share = pct?.[id];
+                                                        return typeof share === 'number' && share > 0 ? `${name} (${share}%)` : name;
+                                                    });
+                                                    return named.join(', ');
                                                 }
                                                 return val.join(', ');
                                             }
