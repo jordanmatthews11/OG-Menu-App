@@ -663,7 +663,7 @@ export default function ListGeniePage() {
                                                                                     </span>
                                                                                 </TableCell>
                                                                                 {/* Extra right padding pulls sub-retailer counts out of the parent's count column. */}
-                                                                                <TableCell className={cn("py-0.5 pr-6 text-right text-[10px]", !childMatch && "text-muted-foreground")}>{child.monthlyQuota}</TableCell>
+                                                                                <TableCell className={cn("py-0.5 pr-9 text-right text-[10px]", !childMatch && "text-muted-foreground")}>{child.monthlyQuota}</TableCell>
                                                                             </TableRow>
                                                                         );
                                                                     })}
