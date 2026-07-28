@@ -113,12 +113,17 @@ export default function ListGeniePage() {
     const holdingSelfFor = (r: { name: string }): HoldingCompany | null =>
         holdingContext.holdingByName.get(normalizeForHoldingMatch(r.name)) ?? null;
 
+    /**
+     * Retailers matching the search. Ones already covered by the ranked list stay VISIBLE but are
+     * flagged `alreadyAdded` (rendered disabled), so searching e.g. "hannaford" makes it obvious the
+     * retailer is already in the Genie rather than looking like no match was found.
+     */
     const availableRetailers = useMemo(() => {
         if (!selectedCountry || !boosters) return [];
         const lowercasedQuery = searchQuery.toLowerCase().trim();
         const normalizedQuery = lowercasedQuery.replace(/[^a-z0-9]/g, '');
 
-        return boosters
+        const matches = boosters
             .filter(b => b.country === selectedCountry)
             .filter(b => {
                 if (!lowercasedQuery) return true;
@@ -129,9 +134,16 @@ export default function ListGeniePage() {
                 return nameLower.includes(lowercasedQuery) ||
                        (normalizedQuery.length > 0 && nameNormalized.includes(normalizedQuery));
             })
-            .filter(b => !preferredList.some(pr => pr.id === b.id))
-            .filter(b => !selectedRetailerNames.has(normalizeRetailerName(b.name)))
-            .filter(b => !expandedParentIds.has(b.id));
+            .map(b => ({
+                ...b,
+                alreadyAdded:
+                    preferredList.some(pr => pr.id === b.id) ||
+                    selectedRetailerNames.has(normalizeRetailerName(b.name)) ||
+                    expandedParentIds.has(b.id),
+            }));
+
+        // Keep selectable retailers on top; already-added ones sink to the bottom.
+        return [...matches.filter(b => !b.alreadyAdded), ...matches.filter(b => b.alreadyAdded)];
     }, [boosters, selectedCountry, searchQuery, preferredList, selectedRetailerNames, expandedParentIds]);
 
     const handleAddRetailer = (retailer: Booster) => {
@@ -506,11 +518,38 @@ export default function ListGeniePage() {
                                 {availableRetailers.length > 0 ? availableRetailers.map(retailer => {
                                     const self = holdingSelfFor(retailer);
                                     const parent = self ? null : parentHoldingFor(retailer);
+                                    const added = retailer.alreadyAdded;
                                     return (
-                                    <div key={retailer.id} className="flex items-center space-x-2 p-1.5 text-sm rounded-md hover:bg-muted">
-                                        <Button variant="outline" size="sm" className="h-7 w-8 text-xs" onClick={() => handleAddRetailer(retailer)}>+</Button>
-                                        <span className="font-normal flex-1 text-xs">{retailer.name}</span>
-                                        {self && (
+                                    <div
+                                        key={retailer.id}
+                                        className={cn(
+                                            "flex items-center space-x-2 p-1.5 text-sm rounded-md",
+                                            added ? "bg-muted/40 opacity-70" : "hover:bg-muted"
+                                        )}
+                                    >
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-7 w-8 text-xs"
+                                            disabled={added}
+                                            title={added ? 'Already in your ranked list' : `Add ${retailer.name}`}
+                                            onClick={() => handleAddRetailer(retailer)}
+                                        >
+                                            {added ? <Check className="h-3 w-3 text-green-600" /> : '+'}
+                                        </Button>
+                                        <span className={cn("font-normal flex-1 text-xs", added && "text-muted-foreground")}>
+                                            {retailer.name}
+                                        </span>
+                                        {added && (
+                                            <Badge
+                                                variant="secondary"
+                                                className="shrink-0 py-0 text-[9px] font-normal"
+                                                title={self ? 'Its banners are already in your ranked list' : 'Already in your ranked list'}
+                                            >
+                                                {self ? 'Banners added' : 'In your list'}
+                                            </Badge>
+                                        )}
+                                        {self && !added && (
                                             <Badge
                                                 variant="secondary"
                                                 className="shrink-0 gap-1 py-0 text-[9px] font-normal"
@@ -531,7 +570,11 @@ export default function ListGeniePage() {
                                         )}
                                     </div>
                                     );
-                                }) : <div className="text-center text-xs text-muted-foreground p-4">No retailers available or all have been added.</div>}
+                                }) : (
+                                    <div className="text-center text-xs text-muted-foreground p-4">
+                                        {searchQuery.trim() ? 'No retailers match your search.' : 'No retailers available for this country.'}
+                                    </div>
+                                )}
                                 </div>
                             </ScrollArea>
                         </div>
