@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, GripVertical, Loader2, Search, Wand2, X, Check, Info, Download, FileSpreadsheet, Building2 } from "lucide-react";
+import { ArrowLeft, GripVertical, Loader2, Search, Wand2, X, Check, Info, Download, FileSpreadsheet, Building2, ClipboardPaste, Upload, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import type { Booster, StoreList, HoldingCompany } from '@/lib/types';
 import { useFirestore, useCollection, useMemoFirebase } from '@/firebase';
@@ -21,25 +21,42 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { RetailerTabs } from "@/components/retailer/retailer-tabs";
 import * as XLSX from 'xlsx';
+import Papa from 'papaparse';
+import { Textarea } from '@/components/ui/textarea';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { normalizeRetailerName, normalizeForHoldingMatch, retailerNamesMatch, sameCountry } from '@/lib/retailer-match';
-import { buildBreakout, expandedRetailerNames, type BreakoutRow } from '@/lib/holding-companies';
+import { buildBreakout, type BreakoutRow } from '@/lib/holding-companies';
+import { parseRetailerListText, parseRetailerListRows, type ParsedEntry } from '@/lib/retailer-list-import';
+import { scoreList, overallScore, type VolumeGap } from '@/lib/list-scoring';
 
 
 interface RankedRetailer extends Booster {
     rank: number;
+    /** Requested monthly visits — same unit as a store list's monthlyQuota. */
+    monthlyTarget?: number;
 }
 
 interface Recommendation {
     listName: string;
     country: string;
+    /** Rank-weighted retailer presence, 0-100. */
     matchPercentage: number;
-    matchedRetailers: Booster[];
-    unmatchedRetailers: Booster[];
+    /** Σ min(available, target) / Σ target, 0-100. Null when no targets were supplied. */
+    volumeCoveragePct: number | null;
+    matchedRetailers: RankedRetailer[];
+    unmatchedRetailers: RankedRetailer[];
+    /** Picks whose requested volume this list can't fully cover. */
+    gaps: VolumeGap[];
+    /** Monthly visits this list offers, keyed by pick name. */
+    availableByName: Map<string, number>;
     fullStandardList: StoreList[];
     /** Rows with their holding-company banner decomposition (parent + indented children). */
     breakout: BreakoutRow[];
-    suggestedBoosters: Booster[];
+    suggestedBoosters: RankedRetailer[];
 }
+
+type ImportStatus = 'matched' | 'unknown';
+type ImportPreviewRow = ParsedEntry & { status: ImportStatus; booster?: Booster };
 
 /** True if a retailer name (store row or broken-out banner) is covered by one of the user's matched picks. */
 const retailerIsMatched = (retailerName: string, matchedPicks: Booster[]): boolean =>
@@ -60,9 +77,20 @@ export default function ListGeniePage() {
     const [recommendations, setRecommendations] = useState<Recommendation[] | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
     const [showAllRecommendations, setShowAllRecommendations] = useState(false);
+
+    // --- Bulk import (paste or spreadsheet) ---
+    const [isImportOpen, setIsImportOpen] = useState(false);
+    const [importText, setImportText] = useState('');
+    const [importParsed, setImportParsed] = useState<ParsedEntry[]>([]);
+    const [importDuplicates, setImportDuplicates] = useState<string[]>([]);
+    const [importMode, setImportMode] = useState<'append' | 'replace'>('replace');
+    const [importSource, setImportSource] = useState<string>('');
+    const importFileRef = useRef<HTMLInputElement>(null);
     
     const draggedItem = useRef<RankedRetailer | null>(null);
     const dragOverItem = useRef<RankedRetailer | null>(null);
+    // A row is only draggable while its grip is held, so the visits input stays editable.
+    const [dragEnabledId, setDragEnabledId] = useState<string | null>(null);
 
     const storeListsRef = useRef(storeLists);
     useEffect(() => { storeListsRef.current = storeLists; }, [storeLists]);
@@ -215,6 +243,138 @@ export default function ListGeniePage() {
         }
     };
 
+    /** Set/clear the requested monthly visits on one pick. */
+    const handleTargetChange = (retailerId: string, raw: string) => {
+        const trimmed = raw.trim();
+        const parsed = trimmed === '' ? undefined : Number(trimmed);
+        const next = typeof parsed === 'number' && Number.isFinite(parsed) && parsed > 0
+            ? Math.round(parsed)
+            : undefined;
+        setPreferredList(prev => prev.map(r => (r.id === retailerId ? { ...r, monthlyTarget: next } : r)));
+    };
+
+    const totalMonthlyTarget = useMemo(
+        () => preferredList.reduce((sum, r) => sum + (r.monthlyTarget || 0), 0),
+        [preferredList]
+    );
+
+    // --- Bulk import -------------------------------------------------------------------
+    const resetImport = () => {
+        setImportText('');
+        setImportParsed([]);
+        setImportDuplicates([]);
+        setImportSource('');
+        if (importFileRef.current) importFileRef.current.value = '';
+    };
+
+    /**
+     * Preview rows. A name that doesn't resolve to a Booster is still usable — matching against
+     * store lists is by name — so it's flagged rather than dropped.
+     */
+    const importPreview: ImportPreviewRow[] = useMemo(() => {
+        return importParsed.map(entry => {
+            const booster = (boosters || []).find(
+                b => sameCountry(b.country, selectedCountry) && retailerNamesMatch(b.name, entry.name)
+            );
+            return booster
+                ? { ...entry, status: 'matched' as const, booster }
+                : { ...entry, status: 'unknown' as const };
+        });
+    }, [importParsed, boosters, selectedCountry]);
+
+    const handleImportTextChange = (value: string) => {
+        setImportText(value);
+        setImportSource('');
+        if (importFileRef.current) importFileRef.current.value = '';
+        const result = parseRetailerListText(value);
+        setImportParsed(result.entries);
+        setImportDuplicates(result.duplicates);
+    };
+
+    const handleImportFile = (file: File) => {
+        const isCsv = /\.csv$/i.test(file.name);
+        const reader = new FileReader();
+
+        reader.onload = e => {
+            try {
+                const content = e.target?.result;
+                let rows: unknown[][] = [];
+
+                if (isCsv) {
+                    const parsed = Papa.parse(String(content ?? ''), { skipEmptyLines: true });
+                    rows = (parsed.data as unknown[][]) || [];
+                } else {
+                    const workbook = XLSX.read(content, { type: 'binary' });
+                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                    // header:1 -> arrays of cells, so no specific column layout is required.
+                    rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false }) as unknown[][];
+                }
+
+                const result = parseRetailerListRows(rows);
+                setImportText('');
+                setImportParsed(result.entries);
+                setImportDuplicates(result.duplicates);
+                setImportSource(file.name);
+
+                if (result.entries.length === 0) {
+                    toast({
+                        variant: 'destructive',
+                        title: 'No retailers found',
+                        description: 'Could not find retailer names in that file.',
+                    });
+                }
+            } catch (err) {
+                console.error('Import parse failed:', err);
+                toast({
+                    variant: 'destructive',
+                    title: 'Could not read file',
+                    description: 'Please upload a .xlsx, .xls or .csv file.',
+                });
+            }
+        };
+
+        if (isCsv) reader.readAsText(file);
+        else reader.readAsBinaryString(file);
+    };
+
+    const handleConfirmImport = () => {
+        if (importPreview.length === 0) return;
+
+        const base = importMode === 'replace' ? [] : [...preferredList];
+        const seen = new Set(base.map(r => normalizeRetailerName(r.name)));
+        const added: RankedRetailer[] = [];
+        let skipped = 0;
+
+        importPreview.forEach((row, index) => {
+            const key = normalizeRetailerName(row.name);
+            if (seen.has(key)) {
+                skipped++;
+                return;
+            }
+            seen.add(key);
+            // Prefer the canonical Booster name when we recognised it, so holding-company
+            // badges and matching behave exactly as they do for hand-picked retailers.
+            added.push({
+                id: row.booster?.id ?? `imported-${index}-${key}`,
+                name: row.booster?.name ?? row.name,
+                country: selectedCountry,
+                isCustom: !row.booster,
+                rank: 0,
+                monthlyTarget: row.monthlyTarget,
+            });
+        });
+
+        setPreferredList([...base, ...added].map((r, i) => ({ ...r, rank: i + 1 })));
+        if (importMode === 'replace') setExpandedParentIds(new Set());
+
+        setIsImportOpen(false);
+        resetImport();
+        toast({
+            title: 'List imported',
+            description: `${added.length} retailer${added.length === 1 ? '' : 's'} added${skipped ? `, ${skipped} already in your list` : ''}.`,
+        });
+    };
+
     const handleAskGenie = () => {
         if (preferredList.length === 0) {
             toast({ variant: 'destructive', title: 'Empty List', description: 'Please add at least one retailer to your preferred list.' });
@@ -234,14 +394,9 @@ export default function ListGeniePage() {
             }
 
             const normalizedCountry = selectedCountry.toLowerCase().trim();
-            const groupedStandardLists = currentStoreLists.reduce<Record<string, { retailers: Set<string>, fullList: StoreList[] }>>((acc, sl) => {
+            const groupedStandardLists = currentStoreLists.reduce<Record<string, StoreList[]>>((acc, sl) => {
                 if (sl.country.toLowerCase().trim() !== normalizedCountry) return acc;
-                const key = sl.name;
-                if (!acc[key]) {
-                    acc[key] = { retailers: new Set(), fullList: [] };
-                }
-                acc[key].retailers.add(normalizeRetailerName(sl.retailer));
-                acc[key].fullList.push(sl);
+                (acc[sl.name] ||= []).push(sl);
                 return acc;
             }, {});
 
@@ -259,51 +414,34 @@ export default function ListGeniePage() {
                 return;
             }
 
-            const totalRanks = preferredList.length;
-            const maxWeightedScore = preferredList.reduce((sum, r) => sum + (totalRanks + 1 - r.rank), 0);
-
-            const allRecommendations: Recommendation[] = Object.entries(groupedStandardLists).map(([listName, { retailers: standardListRetailers, fullList }]) => {
-                const matchedRetailers: Booster[] = [];
-                const unmatchedRetailers: Booster[] = [];
-                let weightedScore = 0;
-
-                const sortedRows = [...fullList].sort((a, b) => b.monthlyQuota - a.monthlyQuota || a.retailer.localeCompare(b.retailer));
+            const allRecommendations: Recommendation[] = Object.entries(groupedStandardLists).map(([listName, rows]) => {
+                const sortedRows = [...rows].sort((a, b) => b.monthlyQuota - a.monthlyQuota || a.retailer.localeCompare(b.retailer));
                 // Decompose holding-company parents (e.g. "Ahold Delhaize 40") into their banners so a
                 // pick like "Food Lion" matches a list that only names the parent.
                 const breakout = buildBreakout(sortedRows, holdingCompanies, boosters);
-                const coveredNames = expandedRetailerNames(breakout);
-
-                preferredList.forEach(preferredRetailer => {
-                    // Exact (normalized/synonym) match, then qualifier-aware fuzzy match, against
-                    // both the list's own rows and any broken-out banner names.
-                    const isMatch =
-                        standardListRetailers.has(normalizeRetailerName(preferredRetailer.name)) ||
-                        coveredNames.some(n => retailerNamesMatch(preferredRetailer.name, n));
-                    if (isMatch) {
-                        matchedRetailers.push(preferredRetailer);
-                        weightedScore += (totalRanks + 1 - preferredRetailer.rank);
-                    } else {
-                        unmatchedRetailers.push(preferredRetailer);
-                    }
-                });
-
-                const matchPercentage = maxWeightedScore > 0
-                    ? Math.round((weightedScore / maxWeightedScore) * 100)
-                    : 0;
+                const score = scoreList(preferredList, breakout);
 
                 return {
                     listName,
                     country: selectedCountry,
-                    matchPercentage,
-                    matchedRetailers,
-                    unmatchedRetailers,
-                    suggestedBoosters: unmatchedRetailers,
+                    matchPercentage: score.retailerMatchPct,
+                    volumeCoveragePct: score.volumeCoveragePct,
+                    matchedRetailers: score.matched,
+                    unmatchedRetailers: score.unmatched,
+                    gaps: score.gaps,
+                    availableByName: score.availableByName,
+                    suggestedBoosters: score.unmatched,
                     fullStandardList: sortedRows,
                     breakout,
                 };
             });
-            
-            const sortedRecs = allRecommendations.sort((a, b) => b.matchPercentage - a.matchPercentage);
+
+            // Volume only influences the ranking when the user supplied targets.
+            const sortedRecs = allRecommendations.sort((a, b) =>
+                overallScore(b.matchPercentage, b.volumeCoveragePct) - overallScore(a.matchPercentage, a.volumeCoveragePct)
+                || b.matchPercentage - a.matchPercentage
+                || a.listName.localeCompare(b.listName)
+            );
             
             setRecommendations(sortedRecs);
             setIsGenerating(false);
@@ -329,6 +467,7 @@ export default function ListGeniePage() {
 
     const handleDragEnd = (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();
+        setDragEnabledId(null);
         if (!draggedItem.current || !dragOverItem.current || draggedItem.current.id === dragOverItem.current.id) {
             draggedItem.current = null;
             dragOverItem.current = null;
@@ -365,7 +504,8 @@ export default function ListGeniePage() {
         doc.text(rec.listName, marginX, 18);
         doc.setFontSize(10);
         doc.setTextColor(110);
-        doc.text(`${rec.country}  •  ${rec.matchPercentage}% Match`, marginX, 25);
+        const volumeText = rec.volumeCoveragePct !== null ? `  •  ${rec.volumeCoveragePct}% volume` : '';
+        doc.text(`${rec.country}  •  ${rec.matchPercentage}% retailers${volumeText}`, marginX, 25);
         doc.setTextColor(0);
 
         doc.setFontSize(11);
@@ -411,9 +551,25 @@ export default function ListGeniePage() {
           doc.text('Suggested Boosters to Add', marginX, finalY + 10);
           autoTable(doc, {
             startY: finalY + 13,
-            body: rec.suggestedBoosters.map(b => [b.name]),
+            body: rec.suggestedBoosters.map(b => [b.name, b.monthlyTarget ? `${b.monthlyTarget} needed` : '']),
             styles: { fontSize: 9, cellPadding: 2 },
             theme: 'plain',
+          });
+        }
+
+        const shortfalls = rec.gaps.filter(g => g.available > 0);
+        if (shortfalls.length > 0) {
+          const finalY = (doc as any).lastAutoTable?.finalY ?? 38;
+          doc.setFontSize(11);
+          doc.text('Short on volume', marginX, finalY + 10);
+          autoTable(doc, {
+            startY: finalY + 13,
+            head: [['Retailer', 'Available', 'Requested', 'Short']],
+            body: shortfalls.map(g => [g.name, String(g.available), String(g.target), String(g.short)]),
+            headStyles: { fillColor: [74, 45, 138], halign: 'left' },
+            columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+            styles: { fontSize: 9, cellPadding: 2 },
+            theme: 'striped',
           });
         }
 
@@ -432,7 +588,8 @@ export default function ListGeniePage() {
         const sheetData: (string | number)[][] = [
           [rec.listName],
           [`Country: ${rec.country}`],
-          [`Match: ${rec.matchPercentage}%`],
+          [`Retailer match: ${rec.matchPercentage}%`],
+          ...(rec.volumeCoveragePct !== null ? [[`Volume coverage: ${rec.volumeCoveragePct}%`]] : []),
           [],
           ['Retailer', 'Monthly'],
           // Parent rows, each followed by its indented banner decomposition.
@@ -444,11 +601,24 @@ export default function ListGeniePage() {
         ];
 
         if (rec.suggestedBoosters.length > 0) {
-          sheetData.push([], ['Suggested Boosters to Add'], ...rec.suggestedBoosters.map(b => [b.name] as (string | number)[]));
+          sheetData.push(
+            [],
+            ['Suggested Boosters to Add', 'Requested'],
+            ...rec.suggestedBoosters.map(b => [b.name, b.monthlyTarget ?? ''] as (string | number)[]),
+          );
+        }
+
+        const shortfalls = rec.gaps.filter(g => g.available > 0);
+        if (shortfalls.length > 0) {
+          sheetData.push(
+            [],
+            ['Short on volume', 'Available', 'Requested', 'Short'],
+            ...shortfalls.map(g => [g.name, g.available, g.target, g.short] as (string | number)[]),
+          );
         }
 
         const ws = XLSX.utils.aoa_to_sheet(sheetData);
-        ws['!cols'] = [{ wch: 32 }, { wch: 10 }];
+        ws['!cols'] = [{ wch: 32 }, { wch: 12 }, { wch: 12 }, { wch: 10 }];
 
         const wb = XLSX.utils.book_new();
         const safeSheetName = rec.listName.substring(0, 31).replace(/[^a-zA-Z0-9_ ]/g, '') || 'List';
@@ -492,19 +662,32 @@ export default function ListGeniePage() {
                     <CardTitle className="text-sm">Step 1: Build Your Preferred Retailer List</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                     <Select onValueChange={(value) => { setSelectedCountry(value); setPreferredList([]); setRecommendations(null); }} value={selectedCountry}>
-                        <SelectTrigger className="w-[280px] h-9 text-xs">
-                            <SelectValue placeholder="Select a Country..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {isLoading ? (
-                                <SelectItem value="loading" disabled className="text-xs">Loading countries...</SelectItem>
-                            ) : (
-                                availableCountries.map(c => <SelectItem key={c} value={c} className="text-xs">{c}</SelectItem>)
-                            )}
-                        </SelectContent>
-                    </Select>
-                    
+                     <div className="flex flex-wrap items-center gap-2">
+                        <Select onValueChange={(value) => { setSelectedCountry(value); setPreferredList([]); setRecommendations(null); }} value={selectedCountry}>
+                            <SelectTrigger className="w-[280px] h-9 text-xs">
+                                <SelectValue placeholder="Select a Country..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {isLoading ? (
+                                    <SelectItem value="loading" disabled className="text-xs">Loading countries...</SelectItem>
+                                ) : (
+                                    availableCountries.map(c => <SelectItem key={c} value={c} className="text-xs">{c}</SelectItem>)
+                                )}
+                            </SelectContent>
+                        </Select>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-9 text-xs"
+                            disabled={!selectedCountry}
+                            onClick={() => { resetImport(); setIsImportOpen(true); }}
+                        >
+                            <ClipboardPaste className="mr-2 h-4 w-4" />
+                            Paste or upload a list
+                        </Button>
+                    </div>
+
                     <div className={cn("grid grid-cols-1 md:grid-cols-2 gap-4", !selectedCountry && "opacity-50 pointer-events-none")}>
                         {/* Left Side: Available Retailers */}
                         <div className="border rounded-lg p-4 flex flex-col gap-3">
@@ -580,8 +763,17 @@ export default function ListGeniePage() {
                         </div>
                         {/* Right Side: Ranked List */}
                          <div className="border rounded-lg p-4 flex flex-col gap-3">
-                            <h3 className="font-semibold text-xs">Your Ranked List ({preferredList.length})</h3>
-                            <p className="text-[11px] text-muted-foreground -mt-2">Drag to rank by importance (1 = most important).</p>
+                            <div className="flex items-baseline justify-between gap-2">
+                                <h3 className="font-semibold text-xs">Your Ranked List ({preferredList.length})</h3>
+                                {totalMonthlyTarget > 0 && (
+                                    <span className="text-[11px] text-muted-foreground">
+                                        {totalMonthlyTarget} monthly visits requested
+                                    </span>
+                                )}
+                            </div>
+                            <p className="text-[11px] text-muted-foreground -mt-2">
+                                Drag to rank by importance (1 = most important). Enter monthly visits per retailer to score volume.
+                            </p>
                              <ScrollArea className="h-64">
                                 <div className="pr-3 space-y-0.5">
                                 {preferredList.length > 0 ? (
@@ -590,17 +782,22 @@ export default function ListGeniePage() {
                                         return (
                                         <div
                                             key={retailer.id}
-                                            draggable
+                                            draggable={dragEnabledId === retailer.id}
                                             onDragStart={(e) => handleDragStart(e, retailer)}
                                             onDragEnter={(e) => handleDragEnter(e, retailer)}
                                             onDragEnd={handleDragEnd}
                                             onDragOver={(e) => e.preventDefault()}
                                             className={cn(
-                                                "flex items-center gap-1 p-0.5 rounded-md bg-muted/50 cursor-grab active:cursor-grabbing",
+                                                "flex items-center gap-1 p-0.5 rounded-md bg-muted/50",
                                                 draggedItem.current?.id === retailer.id && "opacity-30"
                                             )}
                                         >
-                                            <GripVertical className="h-4 w-4 text-muted-foreground"/>
+                                            <GripVertical
+                                                className="h-4 w-4 shrink-0 cursor-grab text-muted-foreground active:cursor-grabbing"
+                                                onMouseDown={() => setDragEnabledId(retailer.id)}
+                                                onMouseUp={() => setDragEnabledId(null)}
+                                                aria-label="Drag to reorder"
+                                            />
                                             <span className="text-[11px] font-bold w-5 text-center">{retailer.rank}.</span>
                                             <span className="flex-1 font-medium text-xs">{retailer.name}</span>
                                             {parent && (
@@ -612,6 +809,17 @@ export default function ListGeniePage() {
                                                     ↳ {parent.name}
                                                 </Badge>
                                             )}
+                                            <Input
+                                                type="number"
+                                                min={0}
+                                                inputMode="numeric"
+                                                value={retailer.monthlyTarget ?? ''}
+                                                onChange={e => handleTargetChange(retailer.id, e.target.value)}
+                                                onPointerDown={e => e.stopPropagation()}
+                                                placeholder="visits"
+                                                title="Requested monthly visits (optional)"
+                                                className="h-6 w-16 shrink-0 px-1 text-right text-[10px]"
+                                            />
                                             <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => handleRemoveRetailer(retailer.id)}>
                                                 <X className="h-3 w-3" />
                                             </Button>
@@ -660,16 +868,33 @@ export default function ListGeniePage() {
                                     return (
                                     <Card key={rec.listName} className="flex flex-col">
                                         <CardHeader className="pb-2">
-                                            <div className="flex justify-between items-start">
+                                            <div className="flex justify-between items-start gap-2">
                                                 <CardTitle className="text-base">{rec.listName}</CardTitle>
-                                                <Badge className={cn("text-[11px]",
-                                                    rec.matchPercentage > 80 ? "bg-green-500" : rec.matchPercentage > 60 ? "bg-yellow-500" : "bg-orange-500",
-                                                    "text-white"
-                                                )}>
-                                                    {rec.matchPercentage}% Match
-                                                </Badge>
+                                                <div className="flex shrink-0 flex-col items-end gap-1">
+                                                    <Badge className={cn("text-[11px]",
+                                                        rec.matchPercentage > 80 ? "bg-green-500" : rec.matchPercentage > 60 ? "bg-yellow-500" : "bg-orange-500",
+                                                        "text-white"
+                                                    )}>
+                                                        {rec.matchPercentage}% Retailers
+                                                    </Badge>
+                                                    {rec.volumeCoveragePct !== null && (
+                                                        <Badge
+                                                            variant="outline"
+                                                            className={cn("text-[11px]",
+                                                                rec.volumeCoveragePct > 80 ? "border-green-500 text-green-700"
+                                                                    : rec.volumeCoveragePct > 60 ? "border-yellow-500 text-yellow-700"
+                                                                    : "border-orange-500 text-orange-700"
+                                                            )}
+                                                            title="Share of your requested monthly visits this list can cover"
+                                                        >
+                                                            {rec.volumeCoveragePct}% Volume
+                                                        </Badge>
+                                                    )}
+                                                </div>
                                             </div>
-                                            <CardDescription className="text-xs pt-1">{rec.country}</CardDescription>
+                                            <CardDescription className="text-xs pt-1">
+                                                {rec.country} · {rec.matchedRetailers.length} of {rec.matchedRetailers.length + rec.unmatchedRetailers.length} retailers
+                                            </CardDescription>
                                         </CardHeader>
                                         <CardContent className="text-xs flex-grow space-y-3">
                                             <Separator />
@@ -734,6 +959,39 @@ export default function ListGeniePage() {
                                                             {rec.suggestedBoosters.map(b => (
                                                                 <TableRow key={b.id}>
                                                                     <TableCell className="font-medium py-1">{b.name}</TableCell>
+                                                                    <TableCell className="py-1 text-right text-muted-foreground">
+                                                                        {b.monthlyTarget ? `${b.monthlyTarget} needed` : ''}
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            ))}
+                                                        </TableBody>
+                                                    </Table>
+                                                </div>
+                                            )}
+
+                                            {/* Retailers the list carries, but not at the requested volume. */}
+                                            {rec.gaps.some(g => g.available > 0) && (
+                                                <div>
+                                                    <div className="mb-2 flex items-center gap-2">
+                                                        <h4 className="text-xs font-semibold">Short on volume:</h4>
+                                                        <Tooltip>
+                                                            <TooltipTrigger>
+                                                                <Info className="h-4 w-4 text-muted-foreground" />
+                                                            </TooltipTrigger>
+                                                            <TooltipContent>
+                                                                <p className="max-w-xs text-xs">This list carries these retailers, but fewer monthly visits than you asked for.</p>
+                                                            </TooltipContent>
+                                                        </Tooltip>
+                                                    </div>
+                                                    <Table className="text-[11px]">
+                                                        <TableBody>
+                                                            {rec.gaps.filter(g => g.available > 0).map(g => (
+                                                                <TableRow key={g.name}>
+                                                                    <TableCell className="py-1 font-medium">{g.name}</TableCell>
+                                                                    <TableCell className="py-1 text-right text-muted-foreground">
+                                                                        {g.available} of {g.target}
+                                                                        <span className="ml-1 text-orange-600">(−{g.short})</span>
+                                                                    </TableCell>
                                                                 </TableRow>
                                                             ))}
                                                         </TableBody>
@@ -765,6 +1023,121 @@ export default function ListGeniePage() {
                     </CardContent>
                 </Card>
             )}
+
+            <Dialog open={isImportOpen} onOpenChange={open => { setIsImportOpen(open); if (!open) resetImport(); }}>
+                <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle className="text-sm">Import a retailer list</DialogTitle>
+                        <DialogDescription className="text-xs">
+                            Paste a list or upload a spreadsheet. Numbers are read as monthly visits, so
+                            &quot;Kroger (60)&quot; asks for 60 visits a month.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-3">
+                        <Textarea
+                            value={importText}
+                            onChange={e => handleImportTextChange(e.target.value)}
+                            rows={4}
+                            className="text-xs"
+                            placeholder={'Ahold Delhaize (40), Albertsons (all banners) (60), Costco Wholesale Corp (20)\n\nOne per line also works, with or without numbers.'}
+                        />
+
+                        <div className="flex flex-wrap items-center gap-2">
+                            <input
+                                ref={importFileRef}
+                                type="file"
+                                accept=".xlsx,.xls,.csv"
+                                className="hidden"
+                                onChange={e => {
+                                    const file = e.target.files?.[0];
+                                    if (file) handleImportFile(file);
+                                }}
+                            />
+                            <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => importFileRef.current?.click()}>
+                                <Upload className="mr-2 h-3.5 w-3.5" />
+                                Upload .xlsx / .csv
+                            </Button>
+                            {importSource && <span className="text-[11px] text-muted-foreground">{importSource}</span>}
+                        </div>
+
+                        {importDuplicates.length > 0 && (
+                            <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />
+                                Skipped {importDuplicates.length} repeated {importDuplicates.length === 1 ? 'retailer' : 'retailers'}: {importDuplicates.join(', ')}
+                            </p>
+                        )}
+
+                        {importPreview.length > 0 && (
+                            <div className="rounded-md border">
+                                <ScrollArea className="h-56">
+                                    <Table className="text-[11px]">
+                                        <TableHeader className="sticky top-0 bg-muted">
+                                            <TableRow>
+                                                <TableHead className="h-7 py-1">Retailer</TableHead>
+                                                <TableHead className="h-7 py-1 w-[90px] text-right">Monthly</TableHead>
+                                                <TableHead className="h-7 py-1 w-[190px]">Status</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {importPreview.map((row, i) => (
+                                                <TableRow key={`${row.name}-${i}`}>
+                                                    <TableCell className="py-1 font-medium">{row.booster?.name ?? row.name}</TableCell>
+                                                    <TableCell className="py-1 text-right">
+                                                        {row.monthlyTarget ?? <span className="text-muted-foreground">—</span>}
+                                                    </TableCell>
+                                                    <TableCell className="py-1">
+                                                        {row.status === 'matched' ? (
+                                                            <span className="inline-flex items-center gap-1 text-green-600">
+                                                                <Check className="h-3 w-3" /> Known retailer
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-muted-foreground" title="Not in the Boosters list — still matched against store lists by name">
+                                                                Not in Boosters — matched by name
+                                                            </span>
+                                                        )}
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </ScrollArea>
+                            </div>
+                        )}
+
+                        {importPreview.length > 0 && (
+                            <div className="flex items-center gap-2">
+                                <span className="text-[11px] text-muted-foreground">Add to your list:</span>
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant={importMode === 'replace' ? 'default' : 'outline'}
+                                    className="h-7 text-[11px]"
+                                    onClick={() => setImportMode('replace')}
+                                >
+                                    Replace
+                                </Button>
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant={importMode === 'append' ? 'default' : 'outline'}
+                                    className="h-7 text-[11px]"
+                                    onClick={() => setImportMode('append')}
+                                >
+                                    Append
+                                </Button>
+                            </div>
+                        )}
+                    </div>
+
+                    <DialogFooter>
+                        <Button type="button" variant="outline" size="sm" onClick={() => setIsImportOpen(false)}>Cancel</Button>
+                        <Button type="button" size="sm" disabled={importPreview.length === 0} onClick={handleConfirmImport}>
+                            Add {importPreview.length > 0 ? `${importPreview.length} retailer${importPreview.length === 1 ? '' : 's'}` : 'list'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
