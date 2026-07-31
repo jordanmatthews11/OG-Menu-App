@@ -589,7 +589,7 @@ export default function ListGeniePage() {
         if (rec.extras.length > 0) {
           const finalY = (doc as any).lastAutoTable?.finalY ?? 38;
           doc.setFontSize(11);
-          doc.text('Extra retailers not in your list', marginX, finalY + 10);
+          doc.text('Extra retailers not in your pick list', marginX, finalY + 10);
           autoTable(doc, {
             startY: finalY + 13,
             head: [['Retailer', 'Monthly']],
@@ -648,7 +648,7 @@ export default function ListGeniePage() {
         if (rec.extras.length > 0) {
           sheetData.push(
             [],
-            ['Extra retailers not in your list', 'Monthly'],
+            ['Extra retailers not in your pick list', 'Monthly'],
             ...rec.extras.map(e => [e.name, e.monthlyQuota] as (string | number)[]),
           );
         }
@@ -905,33 +905,46 @@ export default function ListGeniePage() {
                                     return (
                                     <Card key={rec.listName} className="flex flex-col">
                                         <CardHeader className="pb-2">
-                                            <div className="flex justify-between items-start gap-2">
-                                                <CardTitle className="text-base">{rec.listName}</CardTitle>
-                                                <div className="flex shrink-0 flex-col items-end gap-1">
-                                                    <Badge className={cn("text-[11px]",
-                                                        rec.matchPercentage > 80 ? "bg-green-500" : rec.matchPercentage > 60 ? "bg-yellow-500" : "bg-orange-500",
-                                                        "text-white"
-                                                    )}>
-                                                        {rec.matchPercentage}% Retailers
-                                                    </Badge>
-                                                    {rec.volumeCoveragePct !== null && (
-                                                        <Badge
-                                                            variant="outline"
-                                                            className={cn("text-[11px]",
-                                                                rec.volumeCoveragePct > 80 ? "border-green-500 text-green-700"
-                                                                    : rec.volumeCoveragePct > 60 ? "border-yellow-500 text-yellow-700"
-                                                                    : "border-orange-500 text-orange-700"
-                                                            )}
-                                                            title="Share of your requested monthly visits this list can cover"
-                                                        >
-                                                            {rec.volumeCoveragePct}% Volume
-                                                        </Badge>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            <CardDescription className="text-xs pt-1">
+                                            <CardTitle className="text-base">{rec.listName}</CardTitle>
+                                            <CardDescription className="text-xs">
                                                 {rec.country} · {rec.matchedRetailers.length} of {rec.matchedRetailers.length + rec.unmatchedRetailers.length} retailers
                                             </CardDescription>
+                                            {/* Full-width status rows rather than corner pills, so the labels read as sentences. */}
+                                            <div className="space-y-1 pt-1">
+                                                <div className={cn(
+                                                    "rounded-md px-2 py-1 text-[11px] font-medium text-white",
+                                                    rec.matchPercentage > 80 ? "bg-green-500" : rec.matchPercentage > 60 ? "bg-yellow-500" : "bg-orange-500"
+                                                )}>
+                                                    {rec.matchPercentage}% of your pick list is present in this Standard List
+                                                </div>
+                                                {rec.volumeCoveragePct !== null && (
+                                                    <div className={cn(
+                                                        "rounded-md border bg-background px-2 py-1 text-[11px] font-medium",
+                                                        rec.volumeCoveragePct > 80 ? "border-green-500 text-green-700"
+                                                            : rec.volumeCoveragePct > 60 ? "border-yellow-500 text-yellow-700"
+                                                            : "border-orange-500 text-orange-700"
+                                                    )}>
+                                                        {rec.volumeCoveragePct}% of your pick list quotas are covered by this Standard List
+                                                    </div>
+                                                )}
+                                                {rec.extras.length > 0 && (
+                                                    <div className="flex items-center gap-1.5 rounded-md border border-rose-300 bg-rose-50 px-2 py-1 text-[11px] font-medium text-rose-900">
+                                                        <AlertTriangle className="h-3 w-3 shrink-0 text-rose-500" />
+                                                        <span>Extra retailers not in your pick list: {rec.extras.length}</span>
+                                                        <Tooltip>
+                                                            <TooltipTrigger className="ml-auto shrink-0">
+                                                                <Info className="h-3.5 w-3.5 text-rose-400" />
+                                                            </TooltipTrigger>
+                                                            <TooltipContent>
+                                                                <p className="max-w-xs text-xs">
+                                                                    This standard list includes these retailers even though you didn&apos;t ask for
+                                                                    them. Their visits still count toward the list total.
+                                                                </p>
+                                                            </TooltipContent>
+                                                        </Tooltip>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </CardHeader>
                                         <CardContent className="text-xs flex-grow space-y-3">
                                             <Separator />
@@ -1046,7 +1059,7 @@ export default function ListGeniePage() {
                                                 <div className="rounded-md border border-rose-300 bg-rose-50 p-2">
                                                     <div className="mb-2 flex items-center gap-2">
                                                         <h4 className="text-xs font-semibold text-rose-950">
-                                                            Extra retailers not in your list:
+                                                            Extra retailers not in your pick list:
                                                         </h4>
                                                         <Tooltip>
                                                             <TooltipTrigger>
