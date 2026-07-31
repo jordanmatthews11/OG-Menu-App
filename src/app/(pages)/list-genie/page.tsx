@@ -47,6 +47,8 @@ interface Recommendation {
     unmatchedRetailers: RankedRetailer[];
     /** Picks whose requested volume this list can't fully cover. */
     gaps: VolumeGap[];
+    /** Rows this list carries that the user never asked for (neither the row nor any banner). */
+    extras: { id: string; name: string; monthlyQuota: number }[];
     /** Monthly visits this list offers, keyed by pick name. */
     availableByName: Map<string, number>;
     fullStandardList: StoreList[];
@@ -421,6 +423,16 @@ export default function ListGeniePage() {
                 const breakout = buildBreakout(sortedRows, holdingCompanies, boosters);
                 const score = scoreList(preferredList, breakout);
 
+                // Rows the customer didn't ask for. A holding-company parent only counts as extra
+                // when none of its banners were picked either, so e.g. an "Ahold Delhaize" row is
+                // not flagged when the user asked for Food Lion.
+                const extras = breakout
+                    .filter(({ row, children }) =>
+                        !retailerIsMatched(row.retailer, score.matched) &&
+                        !children.some(c => retailerIsMatched(c.name, score.matched))
+                    )
+                    .map(({ row }) => ({ id: row.id, name: row.retailer, monthlyQuota: row.monthlyQuota }));
+
                 return {
                     listName,
                     country: selectedCountry,
@@ -429,6 +441,7 @@ export default function ListGeniePage() {
                     matchedRetailers: score.matched,
                     unmatchedRetailers: score.unmatched,
                     gaps: score.gaps,
+                    extras,
                     availableByName: score.availableByName,
                     suggestedBoosters: score.unmatched,
                     fullStandardList: sortedRows,
@@ -573,6 +586,21 @@ export default function ListGeniePage() {
           });
         }
 
+        if (rec.extras.length > 0) {
+          const finalY = (doc as any).lastAutoTable?.finalY ?? 38;
+          doc.setFontSize(11);
+          doc.text('Extra retailers not in your list', marginX, finalY + 10);
+          autoTable(doc, {
+            startY: finalY + 13,
+            head: [['Retailer', 'Monthly']],
+            body: rec.extras.map(e => [e.name, String(e.monthlyQuota)]),
+            headStyles: { fillColor: [74, 45, 138], halign: 'left' },
+            columnStyles: { 1: { halign: 'right' } },
+            styles: { fontSize: 9, cellPadding: 2 },
+            theme: 'striped',
+          });
+        }
+
         doc.save(`${exportFileName(rec)}.pdf`);
         toast({ title: 'PDF downloaded', description: `Exported "${rec.listName}".` });
       } catch (err) {
@@ -614,6 +642,14 @@ export default function ListGeniePage() {
             [],
             ['Short on volume', 'Available', 'Requested', 'Short'],
             ...shortfalls.map(g => [g.name, g.available, g.target, g.short] as (string | number)[]),
+          );
+        }
+
+        if (rec.extras.length > 0) {
+          sheetData.push(
+            [],
+            ['Extra retailers not in your list', 'Monthly'],
+            ...rec.extras.map(e => [e.name, e.monthlyQuota] as (string | number)[]),
           );
         }
 
@@ -865,6 +901,7 @@ export default function ListGeniePage() {
                              <TooltipProvider>
                              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
                                 {visibleRecommendations.map(rec => {
+                                    const extraRowIds = new Set(rec.extras.map(e => e.id));
                                     return (
                                     <Card key={rec.listName} className="flex flex-col">
                                         <CardHeader className="pb-2">
@@ -910,10 +947,15 @@ export default function ListGeniePage() {
                                                     <TableBody>
                                                         {rec.breakout.map(({ row: sl, children }) => {
                                                             const parentMatch = retailerIsMatched(sl.retailer, rec.matchedRetailers);
+                                                            const isExtra = extraRowIds.has(sl.id);
                                                             return (
                                                                 <React.Fragment key={sl.id}>
-                                                                    <TableRow>
-                                                                        <TableCell className={cn("py-1 flex items-center gap-2", parentMatch ? "font-bold" : "text-muted-foreground")}>
+                                                                    {/* Rose tint = in the standard list but not in the customer's picks. */}
+                                                                    <TableRow className={cn(isExtra && "bg-rose-50 hover:bg-rose-100/70")}>
+                                                                        <TableCell
+                                                                            className={cn("py-1 flex items-center gap-2", parentMatch ? "font-bold" : "text-muted-foreground")}
+                                                                            title={isExtra ? "Included in this list, but not in your pick list" : undefined}
+                                                                        >
                                                                             {parentMatch && <Check className="h-4 w-4 text-green-500" />}
                                                                             {sl.retailer}
                                                                         </TableCell>
@@ -942,9 +984,9 @@ export default function ListGeniePage() {
                                                 </Table>
                                             </div>
                                             {rec.suggestedBoosters.length > 0 && (
-                                                <div>
+                                                <div className="rounded-md border border-yellow-400 bg-amber-50 p-2">
                                                     <div className="flex items-center gap-2 mb-2">
-                                                        <h4 className="font-semibold text-xs">Suggested Boosters to Add:</h4>
+                                                        <h4 className="font-semibold text-xs text-amber-950">Suggested Boosters to Add:</h4>
                                                         <Tooltip>
                                                             <TooltipTrigger>
                                                                 <Info className="h-4 w-4 text-muted-foreground" />
@@ -996,6 +1038,41 @@ export default function ListGeniePage() {
                                                             ))}
                                                         </TableBody>
                                                     </Table>
+                                                </div>
+                                            )}
+
+                                            {/* Retailers this list covers that the customer never asked for. */}
+                                            {rec.extras.length > 0 && (
+                                                <div className="rounded-md border border-rose-300 bg-rose-50 p-2">
+                                                    <div className="mb-2 flex items-center gap-2">
+                                                        <h4 className="text-xs font-semibold text-rose-950">
+                                                            Extra retailers not in your list:
+                                                        </h4>
+                                                        <Tooltip>
+                                                            <TooltipTrigger>
+                                                                <Info className="h-4 w-4 text-rose-400" />
+                                                            </TooltipTrigger>
+                                                            <TooltipContent>
+                                                                <p className="max-w-xs text-xs">
+                                                                    This standard list includes these retailers even though you didn&apos;t ask for
+                                                                    them. Their visits still count toward the list total.
+                                                                </p>
+                                                            </TooltipContent>
+                                                        </Tooltip>
+                                                    </div>
+                                                    <Table className="text-[11px]">
+                                                        <TableBody>
+                                                            {rec.extras.map(e => (
+                                                                <TableRow key={e.id}>
+                                                                    <TableCell className="py-1 font-medium">{e.name}</TableCell>
+                                                                    <TableCell className="py-1 text-right text-muted-foreground">{e.monthlyQuota}</TableCell>
+                                                                </TableRow>
+                                                            ))}
+                                                        </TableBody>
+                                                    </Table>
+                                                    <p className="mt-1 text-[10px] text-rose-900/70">
+                                                        {rec.extras.reduce((sum, e) => sum + e.monthlyQuota, 0)} monthly visits not requested
+                                                    </p>
                                                 </div>
                                             )}
                                         </CardContent>
