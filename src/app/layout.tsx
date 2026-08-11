@@ -4,6 +4,7 @@ import './globals.css';
 import { Toaster } from "@/components/ui/toaster"
 import { ThemeProvider } from '@/components/theme-provider';
 import { FirebaseClientProvider } from '@/firebase';
+import { MovedNotice } from '@/components/moved-notice';
 
 export const metadata: Metadata = {
   title: 'Storesight',
@@ -36,6 +37,8 @@ export default function RootLayout({
             {children}
           </FirebaseClientProvider>
           <Toaster />
+          {/* Covers the whole app: the Menu now lives in Bloom. Remove to restore access. */}
+          <MovedNotice />
         </ThemeProvider>
       </body>
     </html>
